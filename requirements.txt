@@ -1,0 +1,11 @@
+# Core. A plain `pip install markitdown` CANNOT open PDFs - the [pdf] extra
+# (pdfminer.six + pdfplumber) is what its PDF converter needs.
+markitdown[pdf]>=0.1.7
+openai>=1.40
+pymupdf>=1.24
+pillow>=10.0
+rich>=13.0
+
+# Optional: local OCR fallback for pages the vision model refuses.
+# Remove this line if you do not want the ~80 MB of ONNX runtime it pulls in.
+rapidocr-onnxruntime>=1.2

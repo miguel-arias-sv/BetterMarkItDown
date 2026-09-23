@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bettermarkitdown"
+version = "1.0.0"
+description = "MarkItDown plus a vision layer, for scanned and image-heavy PDFs that plain text extraction turns into an empty file."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["markitdown", "pdf", "markdown", "ocr", "gemini", "vision", "transcription"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+dependencies = [
+    "markitdown[pdf]>=0.1.7",
+    "openai>=1.40",
+    "pymupdf>=1.24",
+    "pillow>=10.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+ocr = ["rapidocr-onnxruntime>=1.2"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+bettermarkitdown = "bettermarkitdown.cli:main"
+bmid = "bettermarkitdown.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/YOUR-USERNAME/BetterMarkItDown"
+Issues = "https://github.com/YOUR-USERNAME/BetterMarkItDown/issues"
+
+[tool.setuptools.packages.find]
+include = ["bettermarkitdown*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    # Several `except Exception` blocks are deliberate: an unreadable cache, a
+    # PDF page with no vector drawings, or a missing optional dependency must
+    # degrade quietly rather than abort a 400-page run.
+    "B904",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

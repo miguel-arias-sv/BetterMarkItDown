@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# Secrets - never commit these
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*credentials*.json
+service-account*.json
+
+# ---------------------------------------------------------------------------
+# Tool output: converted books, extracted figures, resume/cache state
+# ---------------------------------------------------------------------------
+*_work/
+*_assets/
+.bmid_work/
+out/
+output/
+*.md.tmp
+
+# Source material - do not publish copyrighted PDFs you are converting
+*.pdf
+!tests/fixtures/*.pdf
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
