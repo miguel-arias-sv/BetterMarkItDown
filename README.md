@@ -20,8 +20,10 @@ BetterMarkItDown keeps MarkItDown as the text engine and adds the missing vision
 | **No text layer** (scanned, photographed) | The whole page is rendered and transcribed to Markdown: headings, footnotes, LaTeX math, figure descriptions. |
 | **Refused by the model** | Falls back to a local OCR engine on your own machine. See [Refused pages](#refused-pages). |
 
-It runs on **Google Gemini through its OpenAI-compatible endpoint**, so the `openai` library
-you already have works unchanged.
+It talks to **any server that speaks the OpenAI chat-completions protocol.** Google Gemini
+is the default because that is what the cost numbers below were measured against, but
+`--base-url` points it at OpenAI, OpenRouter, or a model running on your own machine. See
+[Providers and tiers](#providers-and-tiers) and [Running a local model](#running-a-local-model).
 
 ---
 
@@ -63,19 +65,24 @@ Charts become data you can reason about, not just alt text:
 > | South | ~70 |
 ```
 
-A 163-page scanned textbook came out as 464 KB of Markdown: 77,970 words, 2,347 inline
-LaTeX expressions, 103 display equations, 92 figure descriptions, 35 footnotes — for
-**$0.58**.
+### Measured runs
+
+| Document | Pages | Result | Cost |
+|---|---|---|---|
+| Scanned macroeconomics textbook | 163 | 464 KB of Markdown — 77,970 words, 2,347 inline LaTeX expressions, 103 display equations, 92 figure descriptions, 35 footnotes | **$0.58** |
+| Three LaTeX lecture-note PDFs (born-digital) | 45 | 102 KB — 594 inline expressions, 135 display equations, 24 figure descriptions | **$0.13** |
 
 ---
 
 ## Install
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/BetterMarkItDown.git
-cd BetterMarkItDown
-pip install -r requirements.txt
+pip install -r requirements.txt          # from inside the repo
+pip install -e .                         # or install it as a package
 ```
+
+<!-- Not yet published to GitHub. Once it is, this becomes:
+     git clone https://github.com/YOUR-USERNAME/BetterMarkItDown.git -->
 
 > **The `[pdf]` extra is not optional.** A plain `pip install markitdown` cannot open a PDF
 > at all — it raises `MissingDependencyException` on every page. `requirements.txt` pins
@@ -86,6 +93,10 @@ Then add your key. Get one free at [aistudio.google.com/apikey](https://aistudio
 ```bash
 cp .env.example .env     # then edit .env and paste your key
 ```
+
+The tool reads, in order: `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`. A real
+environment variable always beats the `.env` file, so you can keep the key in your user
+environment and never have a secret in the repo at all.
 
 `.env` is gitignored. No key is ever written to disk by the tool, printed in full, or
 committed.
@@ -131,6 +142,9 @@ python -m bettermarkitdown book.pdf --estimate 5
 
 # A section, with a spending cap
 python -m bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --workers 4
+
+# Against a model on your own machine
+python -m bettermarkitdown book.pdf --base-url http://localhost:11434/v1 --model qwen3-vl:8b
 ```
 
 ### As a library
@@ -157,9 +171,176 @@ print(result.pages_converted, result.cost)
    - Scanned pages not being transcribed → raise `--min-chars`
    - Small or ornate type coming out wrong → `--dpi 300`
    - Figure descriptions missing axis labels → raise `--figure-pad`
+   - Born-digital pages extracting badly → see below
 4. **Run the whole thing** with `--budget-usd` as a seatbelt.
 5. **If it stops** — cap, quota, Ctrl+C, dropped network — rerun the identical command. It
    resumes and re-pays for nothing.
+
+### When "born-digital" is a trap
+
+A PDF with a text layer looks like the cheap case, and usually is. But text extraction
+inherits whatever the generating program encoded, and **LaTeX output is a common offender.**
+On a set of LaTeX lecture notes, the free text path produced:
+
+```
+(cid:136) Dynamic: Households and firms optimize intertemporally...
+| challenges | posed by | uncertainty. |     |     |
+Chapter4: TheRealBusinessCycle(RBC)FrameworkandNumericalMethods.
+```
+
+Three separate failures: the `itemize` bullet has no Unicode mapping and comes out as
+`(cid:136)`, column whitespace gets misread as a Markdown table, and inter-word spaces are
+missing because the font positions glyphs individually.
+
+None of that is fixable in post-processing. Send those pages to the vision model instead by
+raising the scanned-page threshold above any real page's character count:
+
+```bash
+python -m bettermarkitdown notes.pdf --min-chars 100000 -o notes.md
+```
+
+Every page now counts as "scanned" and gets a full-page transcription. The same pages came
+back clean, with correct `$...$` math, `$$...$$` tagged equations and figure descriptions,
+at about $0.003/page. Check a sample either way — if the text path looks right, keep it,
+because it is free.
+
+### If your output lives in Google Drive, OneDrive or Dropbox
+
+Two flags matter:
+
+- **`--work-dir` on a local disk.** The work dir holds one file per page plus the response
+  cache; leaving it in a synced folder means hundreds of files syncing during the run.
+- **`--no-page-images`.** By default a PNG of every scanned page is written next to the
+  `.md`, which on a long book is ~100 MB of sync traffic for images you already have inside
+  the PDF.
+
+```bash
+python -m bettermarkitdown book.pdf \
+  -o "G:/My Drive/Course/book.md" \
+  --work-dir "C:/Users/you/.pdfmd_work/book" \
+  --no-page-images
+```
+
+---
+
+## Providers and tiers
+
+**What this was built and measured on: Gemini API, Tier 1** — the paid tier you land on as
+soon as you link an active billing account. Nothing in the tool requires that tier; it is
+just the one the cost table reflects and the one that can actually finish a book.
+
+### Gemini free tier
+
+Works, and is the right way to evaluate the tool. Three caveats, in order of how likely they
+are to bite:
+
+1. **Daily request caps.** Free limits are per-model, per-day and low — on the order of a
+   few dozen requests for Flash models, though Google changes the numbers and publishes the
+   current ones in [AI Studio](https://aistudio.google.com/) rather than in the docs. One
+   page is one request, so a 163-page book cannot be converted in a day. Use it on
+   `--estimate 5`, then decide.
+2. **Your documents are used to improve Google's products.** The
+   [Gemini API terms](https://ai.google.dev/gemini-api/terms) draw the line explicitly: on
+   unpaid services "Google uses the content you submit to the Services and any generated
+   responses to provide, improve, and develop Google products and services," while on paid
+   services "Google doesn't use your prompts... or responses to improve our products."
+   If the PDF is confidential, unpublished, or someone else's, this is the caveat that
+   matters — use a paid tier or a [local model](#running-a-local-model).
+3. **Tighter throughput.** Expect 429s. Lower `--workers` to 1–2 and `--rpm` to match your
+   tier; the tool backs off and retries, but a run that keeps hitting the wall is slow.
+
+Free-tier keys also hit the same [recitation filter](#refused-pages) as paid ones. That is a
+content policy, not a billing tier.
+
+### Other hosted providers
+
+Any OpenAI-compatible endpoint works:
+
+```bash
+# OpenAI
+python -m bettermarkitdown book.pdf \
+  --base-url https://api.openai.com/v1 --model gpt-5-mini \
+  --price-in 0.25 --price-out 2.00
+
+# OpenRouter — one key, many models
+python -m bettermarkitdown book.pdf \
+  --base-url https://openrouter.ai/api/v1 --model qwen/qwen3-vl-8b-instruct
+```
+
+Set the key in `OPENAI_API_KEY`, or the endpoint once in `BMID_BASE_URL` and the model in
+`BMID_MODEL`.
+
+Two things to know when you leave Gemini:
+
+- **The cost meter only knows Gemini's price list.** On any other endpoint it reports
+  **$0.00** rather than inventing a bill. Pass `--price-in` / `--price-out` (USD per 1M
+  tokens) to get real numbers, and note that `--budget-usd` cannot stop a run whose prices
+  it does not know.
+- **The model must accept images.** `--list-models` prints what your key can reach. On a
+  non-Gemini endpoint it lists everything the server offers, because there is no reliable way
+  to tell which of those are multimodal — check the provider's docs.
+
+---
+
+## Running a local model
+
+A model on your own machine changes the trade-offs completely: **nothing leaves your
+computer, there is no quota, no per-page cost, and no recitation filter.** What you give up
+is speed and, on the smaller models, accuracy on exactly the hard parts — dense mathematical
+notation, multi-column layout, small print in figures.
+
+Anything with an OpenAI-compatible server works. [Ollama](https://ollama.com) is the
+shortest path:
+
+```bash
+ollama pull qwen3-vl:8b
+python -m bettermarkitdown book.pdf \
+  --base-url http://localhost:11434/v1 \
+  --model qwen3-vl:8b \
+  --workers 1 --rpm 0
+```
+
+`--workers 1` because a local server usually processes one request at a time anyway, and
+parallel requests just fight over VRAM. `--rpm 0` removes a throttle you no longer need.
+
+### Light models worth downloading
+
+Sizes are the Ollama download where one exists; VRAM in practice runs somewhat above that.
+
+| Model | Size | Why it is on this list |
+|---|---|---|
+| [**Qwen3-VL 8B**](https://ollama.com/library/qwen3-vl) | 6.1 GB | The reasonable default. OCR across 32 languages, holds up on blurred, tilted and badly lit scans. Fits a 12 GB card. `qwen3-vl:4b` (3.3 GB) and `:2b` (1.9 GB) trade accuracy for a smaller machine. |
+| [**Granite-Docling 258M**](https://huggingface.co/ibm-granite/granite-docling-258M) | ~0.5 GB | Purpose-built for document conversion rather than general vision, with IBM's DocTags structural output. Astonishing capability per megabyte; runs on CPU. |
+| [**PaddleOCR-VL 0.9B**](https://huggingface.co/PaddlePaddle/PaddleOCR-VL) | ~2 GB | Document parsing specialist — text, tables, formulas and charts across 109 languages, from a 0.9B model. |
+| [**Nanonets-OCR2-3B**](https://huggingface.co/nanonets/Nanonets-OCR2-3B) | ~6 GB | Tuned for OCR to structured Markdown, including LaTeX for equations. A good middle option when math matters. |
+| [**olmOCR 2**](https://github.com/allenai/olmocr) | ~15 GB | Allen AI's PDF-to-text pipeline, trained specifically on document linearization. Heavier, but built for this exact job. |
+| [**Qwen2.5-VL 3B / 7B**](https://ollama.com/library/qwen2.5vl) | 3.2 / 6 GB | The previous generation, still strong on documents and very widely supported — the safe choice if a newer model misbehaves in your runtime. |
+
+### Related tools worth knowing about
+
+BetterMarkItDown is a MarkItDown wrapper. For some documents a purpose-built pipeline is
+simply the better instrument, and it is worth knowing when to reach for one:
+
+- [**Docling**](https://docling-project.github.io/docling/) (IBM) — document conversion with
+  layout understanding, and a
+  [catalog of local vision models](https://docling-project.github.io/docling/usage/vision_models/)
+  it can drive via Transformers or MLX. Fastest route to Granite-Docling.
+- [**Marker**](https://github.com/datalab-to/marker) — PDF to Markdown with strong table and
+  equation handling.
+- [**MinerU**](https://github.com/opendatalab/MinerU) — high-resolution document parsing,
+  aimed at scientific PDFs.
+- [**RapidOCR**](https://github.com/RapidAI/RapidOCR) — already bundled here as the
+  [refusal fallback](#refused-pages); a solid choice on its own for plain text scans.
+- [**Top 7 Open Source OCR Models**](https://www.kdnuggets.com/top-7-open-source-ocr-models) —
+  a current survey if none of the above fits.
+
+### Setting expectations honestly
+
+On lecture notes full of `\frac`, subscripts and tagged equations, an 8B local model will get
+the prose right and make mistakes in the notation that a frontier model does not. That is a
+fine trade for a first pass, for private documents, or for bulk work you will proofread —
+and a poor one if you are relying on the math being correct without checking it. Convert five
+pages locally and five through a hosted model, read both, and decide with evidence.
 
 ---
 
@@ -180,9 +361,6 @@ produce a 475-token transcription: **77% of the bill was deliberation about an O
 Output with `reasoning_effort="none"` was character-for-character equivalent, so that is
 the default. The cost meter counts `total - prompt` as output, so the number it reports is
 what you are actually charged.
-
-Free tier is capped around 20 requests/day/model — enough to evaluate, not to convert a
-book. Attach billing for real work.
 
 ---
 
@@ -205,7 +383,11 @@ the right tool for reading a scan anyway. The trade-off is real and the output s
 an HTML comment on every affected page: layout is flattened, and mathematical notation is
 unreliable. Disable with `--no-ocr-fallback`.
 
-On a 163-page textbook, 4 pages hit this. The rest transcribed cleanly.
+On a 163-page textbook, 4 pages hit this. On a 20-page set of lecture notes, 2 did — and
+those two were a professor's own notes, not a published book, which is a useful reminder
+that the filter matches patterns rather than checking who holds the copyright. Where it
+lands on pages you need, render them from the PDF and read the image directly; that beats
+any transcription.
 
 ---
 
@@ -216,16 +398,23 @@ On a 163-page textbook, 4 pages hit this. The rest transcribed cleanly.
 | `-o, --output` | next to the PDF | Where the `.md` goes |
 | `--pages` | all | `5`, `10-40`, `1,5,9-12` |
 | `--work-dir` | next to the output | Resume state and response cache. **Point this at a local disk if your output lives in Google Drive / OneDrive / Dropbox** |
-| `--model` | `gemini-3.6-flash` | `--list-models` shows what your key can call |
+| `--model` | `gemini-3.6-flash` | Also read from `$BMID_MODEL` |
+| `--base-url` | Gemini | Any OpenAI-compatible endpoint, e.g. `http://localhost:11434/v1`. Also read from `$BMID_BASE_URL` |
+| `--list-models` | — | Print the models your key can reach, then exit |
 | `--reasoning` | `none` | Thinking budget. `none` is ~3× cheaper with no measured quality loss |
 | `--dpi` | 200 | Render resolution. 300 for small or ornate type |
-| `--min-chars` | 120 | Below this many non-space characters, a page counts as scanned |
+| `--max-edge` | 1568 | Downscale page and figure uploads to this long edge before sending |
+| `--min-chars` | 120 | Below this many non-space characters, a page counts as scanned. Set it huge to force vision on every page |
+| `--min-figure-pt` | 60 | Ignore figures smaller than this many points — skips rules, logos and bullet glyphs |
 | `--figure-pad` | 22 | Points of margin around figure crops, so captions come along |
-| `--workers` | 3 | Pages converted in parallel |
-| `--rpm` | 60 | Request throttle. Lower it if you see 429s |
-| `--budget-usd` | none | Stop cleanly at this spend. Resumable |
+| `--workers` | 3 | Pages converted in parallel. Use 1 for a local model |
+| `--rpm` | 60 | Request throttle. Lower it if you see 429s, `0` to disable |
+| `--budget-usd` | none | Stop cleanly at this spend. Resumable. Needs known prices to work |
+| `--price-in` | model's list price | USD per 1M input tokens — required on non-Gemini endpoints |
+| `--price-out` | model's list price | USD per 1M output tokens |
 | `--estimate N` | off | Convert N pages, measure, project the rest |
 | `--no-vision` | off | Text only, zero API calls |
+| `--no-page-images` | off | Don't save a PNG of each scanned page |
 | `--no-ocr-fallback` | off | Leave refused pages unconverted instead of using local OCR |
 | `--fresh` | off | Redo pages already finished |
 
@@ -255,12 +444,23 @@ Three behaviours here were bought with real mistakes, and the tests lock them in
 
 ## Requirements
 
-Python 3.10+, and a Gemini API key for the vision features.
+Python 3.10+, and a vision model to talk to — a hosted API key, or a local server.
 
 ```
 markitdown[pdf]  openai  pymupdf  pillow  rich
 rapidocr-onnxruntime   # optional, for the local OCR fallback
 ```
+
+### Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | API key, tried in that order |
+| `BMID_BASE_URL` / `OPENAI_BASE_URL` | Default endpoint, instead of passing `--base-url` |
+| `BMID_MODEL` | Default model, instead of passing `--model` |
+
+All of these can live in `.env` instead. A real environment variable always wins over the
+file.
 
 ## Tests
 

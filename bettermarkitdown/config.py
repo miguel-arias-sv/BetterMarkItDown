@@ -16,6 +16,23 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 DEFAULT_MODEL = "gemini-3.6-flash"
 
+
+def get_base_url(explicit: str | None = None) -> str:
+    """Resolve the OpenAI-compatible endpoint to talk to.
+
+    Any server speaking the OpenAI chat-completions protocol works - Gemini,
+    OpenAI, OpenRouter, or a local Ollama / llama.cpp / LM Studio. Gemini stays
+    the default because it is what the cost table was measured against.
+    """
+    if explicit:
+        return explicit.strip()
+    load_dotenv()
+    for name in ("BMID_BASE_URL", "OPENAI_BASE_URL"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return GEMINI_BASE_URL
+
 # Paid-tier list prices, USD per 1M tokens.
 # Source: https://ai.google.dev/gemini-api/docs/pricing (checked 2026-09-21).
 # The 3.x Flash rates are promotional through 2026-12-31 and double on
@@ -54,12 +71,21 @@ def load_dotenv(start: Path | None = None) -> None:
         return
 
 
+def get_model(explicit: str | None = None) -> str:
+    """Resolve the model name. BMID_MODEL lets you set a default per machine."""
+    if explicit:
+        return explicit.strip()
+    load_dotenv()
+    value = os.environ.get("BMID_MODEL", "").strip()
+    return value or DEFAULT_MODEL
+
+
 def get_api_key(explicit: str | None = None) -> str | None:
     """Resolve the API key. Never logs or returns it anywhere user-visible."""
     if explicit:
         return explicit.strip()
     load_dotenv()
-    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY"):
         value = os.environ.get(name, "").strip()
         if value:
             return value
@@ -85,6 +111,7 @@ class Options:
     model: str = DEFAULT_MODEL
     reasoning: str = "none"
     api_key: str | None = None
+    base_url: str = GEMINI_BASE_URL
 
     dpi: int = 200
     max_edge: int = 1568
@@ -111,8 +138,20 @@ class Options:
     def assets_dir(self) -> Path:
         return self.output.parent / (self.output.stem + "_assets")
 
+    def is_gemini(self) -> bool:
+        return self.base_url.rstrip("/") == GEMINI_BASE_URL.rstrip("/")
+
     def prices(self) -> tuple[float, float]:
-        base = PRICES.get(self.model, FALLBACK_PRICE)
+        if self.model in PRICES:
+            base = PRICES[self.model]
+        elif self.is_gemini():
+            base = FALLBACK_PRICE
+        else:
+            # An endpoint we have no price list for - a local model, or another
+            # provider. Reporting Gemini's rates there would be a fiction; $0 is
+            # right for local and honest about being unknown otherwise. Set real
+            # numbers with --price-in / --price-out.
+            base = (0.0, 0.0)
         return (self.price_in if self.price_in is not None else base[0],
                 self.price_out if self.price_out is not None else base[1])
 

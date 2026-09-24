@@ -14,7 +14,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bettermarkitdown.config import Options  # noqa: E402
+from bettermarkitdown.config import (  # noqa: E402
+    GEMINI_BASE_URL,
+    Options,
+    get_base_url,
+    get_model,
+)
 from bettermarkitdown.core import Meter, convert, parse_pages  # noqa: E402
 
 
@@ -117,3 +122,42 @@ def test_partial_page_run_keeps_the_rest_of_the_document(sample_pdf: Path, tmp_p
     text = output.read_text(encoding="utf-8")
     assert "## Page 1" in text, "rerunning one page must not drop the other pages"
     assert "## Page 2" in text
+
+
+def test_endpoint_and_model_resolution_precedence(monkeypatch, tmp_path: Path):
+    """An explicit flag beats the environment, which beats the default."""
+    monkeypatch.chdir(tmp_path)          # no .env to find
+    monkeypatch.delenv("BMID_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("BMID_MODEL", raising=False)
+
+    assert get_base_url() == GEMINI_BASE_URL
+    assert get_model() == "gemini-3.6-flash"
+
+    monkeypatch.setenv("BMID_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("BMID_MODEL", "qwen3-vl:8b")
+    assert get_base_url() == "http://localhost:11434/v1"
+    assert get_model() == "qwen3-vl:8b"
+
+    assert get_base_url("http://elsewhere/v1") == "http://elsewhere/v1"
+    assert get_model("gemini-3.8-flash") == "gemini-3.8-flash"
+
+
+def test_unknown_endpoint_reports_no_cost_rather_than_geminis(tmp_path: Path):
+    """Quoting Gemini's rates for someone else's model would be a fiction.
+
+    A local model costs nothing, and for another paid provider the honest answer
+    is zero-until-told, via --price-in / --price-out.
+    """
+    common = dict(pdf=tmp_path / "x.pdf", output=tmp_path / "x.md")
+
+    assert Options(**common).prices() == (0.75, 3.75)          # Gemini default
+    assert Options(**common, model="gemini-9-unreleased").prices() == (0.75, 3.75)
+
+    local = Options(**common, base_url="http://localhost:11434/v1", model="qwen3-vl:8b")
+    assert local.is_gemini() is False
+    assert local.prices() == (0.0, 0.0)
+
+    told = Options(**common, base_url="https://openrouter.ai/api/v1", model="some/vl",
+                   price_in=0.2, price_out=0.8)
+    assert told.prices() == (0.2, 0.8)

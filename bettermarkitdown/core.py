@@ -386,12 +386,16 @@ def parse_pages(spec: str | None, total: int) -> list[int]:
     return sorted(p for p in out if 0 <= p < total)
 
 
-def list_models(api_key: str) -> list[str]:
+def list_models(api_key: str, base_url: str = GEMINI_BASE_URL) -> list[str]:
     from openai import OpenAI
-    client = OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL)
+    client = OpenAI(api_key=api_key or "not-needed", base_url=base_url)
     skip = ("embedding", "tts", "live", "robotics")
-    return [m.id.replace("models/", "") for m in client.models.list()
-            if "gemini" in m.id and not any(word in m.id for word in skip)]
+    names = [m.id.replace("models/", "") for m in client.models.list()]
+    if base_url.rstrip("/") != GEMINI_BASE_URL.rstrip("/"):
+        # A non-Gemini endpoint: we cannot guess which of its models see images,
+        # so list everything it offers rather than filtering to nothing.
+        return sorted(names)
+    return [n for n in names if "gemini" in n and not any(w in n for w in skip)]
 
 
 def convert(opts: Options, on_event: Event | None = None) -> Result:
@@ -413,9 +417,11 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
 
     client = None
     if not opts.no_vision:
-        if not opts.api_key:
+        if not opts.api_key and opts.is_gemini():
             raise RuntimeError("No API key. Set GEMINI_API_KEY (or use no_vision).")
-        client = OpenAI(api_key=opts.api_key, base_url=GEMINI_BASE_URL, timeout=180.0)
+        # Local servers accept any non-empty key; the openai client demands one.
+        client = OpenAI(api_key=opts.api_key or "not-needed",
+                        base_url=opts.base_url, timeout=180.0)
 
     # MarkItDown still receives the client: unused on the PDF path, but it is what
     # makes md.convert("figure.png") work if you reuse this object for images.

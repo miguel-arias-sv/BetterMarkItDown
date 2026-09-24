@@ -11,7 +11,14 @@ import sys
 from pathlib import Path
 
 from . import ocr
-from .config import DEFAULT_MODEL, Options, get_api_key
+from .config import (
+    DEFAULT_MODEL,
+    GEMINI_BASE_URL,
+    Options,
+    get_api_key,
+    get_base_url,
+    get_model,
+)
 from .core import Meter, convert, list_models
 
 
@@ -27,7 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
                                            "cache; point it at a local disk when the output "
                                            "lives in a synced folder")
 
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"default: {DEFAULT_MODEL}")
+    parser.add_argument("--model", default=None,
+                        help=f"default: {DEFAULT_MODEL}, or $BMID_MODEL if set")
+    parser.add_argument("--base-url",
+                        help="OpenAI-compatible endpoint to use instead of Gemini, e.g. "
+                             "http://localhost:11434/v1 for Ollama. Also read from "
+                             "BMID_BASE_URL")
     parser.add_argument("--reasoning", default="none",
                         choices=["none", "low", "medium", "high", "default"],
                         help="thinking budget. Transcription does not need it and thinking "
@@ -73,12 +85,14 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     api_key = get_api_key()
+    base_url = get_base_url(args.base_url)
+    gemini = base_url.rstrip("/") == GEMINI_BASE_URL.rstrip("/")
 
     if args.list_models:
-        if not api_key:
+        if not api_key and gemini:
             print("No API key. Set GEMINI_API_KEY or create a .env file.", file=sys.stderr)
             return 1
-        for name in list_models(api_key):
+        for name in list_models(api_key, base_url):
             print(name)
         return 0
 
@@ -90,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Not found: {pdf}", file=sys.stderr)
         return 1
 
-    if not api_key and not args.no_vision:
+    if not api_key and not args.no_vision and gemini:
         print("No API key. Set GEMINI_API_KEY, create a .env file, or pass --no-vision.",
               file=sys.stderr)
         return 1
@@ -100,7 +114,9 @@ def main(argv: list[str] | None = None) -> int:
         output=(Path(args.output).expanduser().resolve() if args.output
                 else pdf.with_suffix(".md")),
         work_dir=Path(args.work_dir).expanduser().resolve() if args.work_dir else None,
-        pages=args.pages, model=args.model, reasoning=args.reasoning, api_key=api_key,
+        pages=args.pages, model=get_model(args.model), reasoning=args.reasoning,
+        api_key=api_key,
+        base_url=base_url,
         dpi=args.dpi, max_edge=args.max_edge, min_chars=args.min_chars,
         min_figure_pt=args.min_figure_pt, figure_pad=args.figure_pad,
         workers=args.workers, rpm=args.rpm, budget_usd=args.budget_usd,
