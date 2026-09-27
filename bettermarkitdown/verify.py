@@ -6,8 +6,10 @@ a text layer. That layer is often too mangled to use as the transcription itself
 of *which words* are on the page. Comparing bags of words against it catches
 dropped sentences, invented text and garbled OCR for free, without any API call.
 
-What it cannot check: math, figures, or scanned pages (no text layer). Those
-still need a look at the page image.
+What it cannot check: whether math and figures are *right*, or the words of
+scanned pages (no text layer). Those still need a look at the page image. It does
+check that the math is still well-formed on every page, scanned or not: a review
+note pasted into the middle of an equation block breaks it silently.
 """
 
 from __future__ import annotations
@@ -45,10 +47,30 @@ class PageCheck:
     extra: Counter = field(default_factory=Counter)     # in the Markdown, not in the PDF
     status: str = "ok"               # ok | flagged | no-text-layer | no-page-file
     ocr: bool = False                # page still carries the local-OCR fallback text
+    math: list[str] = field(default_factory=list)       # structural problems in the math
 
     @property
     def flagged(self) -> bool:
-        return self.status == "flagged" or self.ocr
+        return self.status == "flagged" or self.ocr or bool(self.math)
+
+
+def math_problems(md: str) -> list[str]:
+    """Structural faults that stop equations rendering. Says nothing about
+    whether an equation is correct."""
+    md = _COMMENT.sub(" ", md)
+    problems = []
+    if md.count("$$") % 2:
+        problems.append("unmatched $$")
+    else:
+        for block in re.findall(r"\$\$(.*?)\$\$", md, re.S):
+            if re.search(r"\n\s*\n", block):
+                problems.append("blank line inside a display equation")
+            if "*[" in block:
+                problems.append("review note inside a display equation")
+    for env in set(re.findall(r"\\begin\{(\w+\*?)\}", md)):
+        if md.count(rf"\begin{{{env}}}") != md.count(rf"\end{{{env}}}"):
+            problems.append(f"unmatched \\begin{{{env}}}")
+    return problems
 
 
 def split_markdown(md: str) -> tuple[str, str]:
@@ -115,11 +137,12 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     # OCR keeps the words and wrecks the math, so a clean word match proves nothing
     # on these pages: always send them back for a look.
     ocr = _OCR_SOURCE in md
+    math = math_problems(md)
     prose, other = split_markdown(md)
     md_words = Counter(_words(prose))
     raw = _words(pdf_text)
     if len(raw) < min_words:
-        return PageCheck(page, len(raw), status="no-text-layer", ocr=ocr)
+        return PageCheck(page, len(raw), status="no-text-layer", ocr=ocr, math=math)
     pdf_words = Counter(_pdf_words(pdf_text, md_words))
     other_letters = _norm(re.sub(r"[^A-Za-z]", "", other))
     missing = Counter({w: n for w, n in (pdf_words - md_words).items()
@@ -127,7 +150,8 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     extra = md_words - pdf_words
     _forgive_math_fusion(missing, extra, md_words)
     flagged = sum(missing.values()) + sum(extra.values()) > max_diff
-    return PageCheck(page, len(raw), missing, extra, "flagged" if flagged else "ok", ocr)
+    return PageCheck(page, len(raw), missing, extra, "flagged" if flagged else "ok", ocr,
+                     math)
 
 
 def verify(pdf: Path, work_dir: Path, pages: list[int] | None = None,
@@ -165,12 +189,15 @@ def format_report(results: list[PageCheck], limit: int = 20) -> str:
         if r.ocr:
             lines.append(f"page {r.page}: still local-OCR text -- the words may match, but "
                          "math and layout are unreliable. Retype it from the page image.")
+        if r.math:
+            lines.append(f"page {r.page}: broken math -- {'; '.join(r.math)}")
     counts = Counter(r.status for r in results)
     n_ocr = sum(r.ocr for r in results)
+    n_math = sum(bool(r.math) for r in results)
     lines.append(f"\n{counts['ok']} page(s) match the text layer, {counts['flagged']} flagged, "
-                 f"{n_ocr} still OCR, "
+                 f"{n_ocr} still OCR, {n_math} with broken math, "
                  f"{counts['no-text-layer']} without a text layer (check those by eye), "
                  f"{counts['no-page-file']} not converted yet.")
-    lines.append("Math and figure descriptions are not checked here -- compare those "
-                 "with the page image.")
+    lines.append("Whether equations and figure descriptions are *correct* is not checked "
+                 "here -- compare those with the page image.")
     return "\n".join(lines)

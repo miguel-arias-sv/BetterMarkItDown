@@ -95,6 +95,20 @@ def test_local_ocr_page_is_flagged_even_when_the_words_match():
     assert result.status == "ok" and result.ocr and result.flagged
 
 
+def test_review_note_pasted_inside_an_equation_block_is_caught():
+    # A real slip from a review: the note landed between the lines of an aligned block
+    md = MD + ("\n$$\\begin{aligned}\nc^* &= Ak^{*\\alpha} - \\delta k^* \\\\\n"
+               "&= \\text{something}\n\n*[sic: wrong in the book]*\n\\end{aligned}$$\n")
+    result = check_page(PDF_TEXT, md, 3)
+    assert result.flagged
+    assert "review note inside a display equation" in result.math
+
+
+def test_math_check_runs_on_pages_without_a_text_layer():
+    result = check_page("Figure 3", MD + "\n$$x = 1\n", 3)
+    assert result.status == "no-text-layer" and result.math == ["unmatched $$"]
+
+
 def test_page_without_a_text_layer_is_reported_not_passed():
     assert check_page("Figure 3", MD, 3).status == "no-text-layer"
 

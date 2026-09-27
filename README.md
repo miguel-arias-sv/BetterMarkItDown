@@ -439,8 +439,14 @@ exits with code 3 if anything is flagged. It also always flags pages still holdi
 text: OCR tends to get the words right and the math wrong, so a word match proves nothing
 there.
 
-It does not check math, figures, or scanned pages (no text layer). The report says how many
-pages it could not check, and those still need a look at the page image.
+It also checks, on every page including scanned ones, that the math is still well-formed:
+unmatched `$$`, a blank line or a review note inside a display equation, and unmatched
+`\begin`/`\end`. Pasting a `*[sic]*` note into the middle of an `aligned` block is an easy
+slip during a review, and it breaks the equation silently.
+
+It does not check whether equations and figure descriptions are *correct*, or the words of
+scanned pages (no text layer). The report says how many pages it could not check, and those
+still need a look at the page image.
 
 **Fix the work dir, not the output.** The output is rebuilt from `<work-dir>/pages/`, so
 edit `<work-dir>/pages/NNNN.md` and then rerun the same command with `--no-vision` added.
