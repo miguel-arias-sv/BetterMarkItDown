@@ -391,6 +391,49 @@ any transcription.
 
 ---
 
+## Reviewing the output
+
+A conversion is a first draft. On the 163-page textbook above, a full review against the
+page images found:
+
+- **Body text and equations: reliable.** Spot checks matched the book exactly.
+- **The book's own figure captions: verbatim.**
+- **The model's descriptions of diagrams: not reliable.** 22 of 93 were factually wrong, and
+  about 1 in 4 analytical diagrams had a point, label or curve in the wrong place (two
+  indifference curves swapped, a point attached to the wrong line, a line described that
+  isn't drawn). Descriptions of data charts were rarely wrong but usually empty.
+- **Local-OCR pages: wrong where it matters.** In a problem set, `π = 0.8` came out as
+  `T = 0.8` and `a = 1` as `a  l`.
+
+If the Markdown is going to be used as context for an LLM, which then repeats a wrong figure
+description with confidence, review at least the OCR pages and the diagrams.
+
+**Fix the work dir, not the output.** The output is rebuilt from `<work-dir>/pages/`, so
+edit `<work-dir>/pages/NNNN.md` and then rerun the same command with `--no-vision` added.
+Every page already exists, so nothing is converted and nothing is billed. The output is
+reassembled with your edits.
+
+> **Never pass `--fresh` to a work dir you have edited.** It re-converts every page and
+> overwrites your fixes.
+
+Conventions that keep a reviewed file honest:
+
+| Mark | Meaning |
+|---|---|
+| `<!-- source: transcribed by hand from the page scan … -->` | Replaces the local-OCR comment on a page you retyped |
+| `*[corrected in review: the original said …]*` | The model's description was wrong; record what it claimed |
+| `*[added in review]*` | Something important was missing, e.g. the data behind a chart |
+
+Two more tricks follow from "the output is every file in `pages/`, in name order":
+
+- **A notes page.** `pages/0000.md` sorts first, so it becomes the top of the output: say how
+  the file was made, how far to trust each part, and what was corrected. A reader (or an
+  LLM) sees it before anything else, and it survives every rebuild.
+- **Dropping pages.** To leave out covers or blank pages, move their files out of `pages/`
+  (for example to `<work-dir>/excluded/`). `--pages` does not do this, by design.
+
+---
+
 ## Options
 
 | Flag | Default | What it does |
@@ -416,7 +459,7 @@ any transcription.
 | `--no-vision` | off | Text only, zero API calls |
 | `--no-page-images` | off | Don't save a PNG of each scanned page |
 | `--no-ocr-fallback` | off | Leave refused pages unconverted instead of using local OCR |
-| `--fresh` | off | Redo pages already finished |
+| `--fresh` | off | Redo pages already finished. **Overwrites hand edits in the work dir** — see [Reviewing the output](#reviewing-the-output) |
 
 ---
 
