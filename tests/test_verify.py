@@ -67,6 +67,14 @@ def test_hyphenation_across_a_line_break_is_rejoined():
     assert check_page(pdf, MD, 3).status == "ok"
 
 
+def test_hyphen_at_line_end_is_rejoined_even_when_the_first_half_is_a_word():
+    # Seen in a real PDF the dehyphenation pass left alone: 'there-\nfore', and a
+    # ligature inside the split word, 'indef-\ninitely'
+    pdf = PDF_TEXT + "We there-\nfore assume it lasts indef-\ninitely.\n"
+    md = MD + "\nWe therefore assume it lasts indefinitely.\n"
+    assert check_page(pdf, md, 3).status == "ok"
+
+
 def test_possessive_is_not_glued_into_a_fake_word():
     # 'firm's' must not become 'firms' just because the Markdown says 'firms' elsewhere
     pdf = PDF_TEXT + "The firm's profit is paid to households who own the firms.\n"

@@ -76,8 +76,12 @@ def _pdf_words(pdf_text: str, known: Counter) -> list[str]:
         w = _norm(tokens[i].group())
         if i + 1 < len(tokens):
             gap = pdf_text[tokens[i].end():tokens[i + 1].start()]
-            joined = w + _norm(tokens[i + 1].group())
-            if "\n" in gap and w not in known and joined in known:
+            # Normalise after joining: 'indef' + 'initely' only loses its 'fi' once whole.
+            joined = _norm(tokens[i].group() + tokens[i + 1].group())
+            # An explicit end-of-line hyphen settles it even when the first half is a
+            # word of its own ('there-' + 'fore'); a bare line break needs more care.
+            hyphenated = re.fullmatch(r"[-­‐]\s*\n\s*", gap) is not None
+            if "\n" in gap and joined in known and (hyphenated or w not in known):
                 out.append(joined)
                 i += 2
                 continue
