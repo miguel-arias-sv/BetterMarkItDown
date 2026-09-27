@@ -393,10 +393,22 @@ any transcription.
 
 ## Reviewing the output
 
-A conversion is a first draft. On the 163-page textbook above, a full review against the
-page images found:
+A conversion is a first draft. How good a draft depends on the source. Two full reviews
+against the page images:
 
-- **Body text and equations: reliable.** Spot checks matched the book exactly.
+| | Scanned textbook (163 pp.) | LaTeX lecture notes (45 pp.) |
+|---|---|---|
+| Wording | Matched the book in every spot check | **Every word** matched the PDF text layer (`--verify`) |
+| Equations | Exact in every spot check | 1 wrong subscript in ~135 display equations |
+| Diagram descriptions | **22 of 93 wrong** | 1 of 24 wrong |
+| Refused pages → local OCR | 4, with wrong numbers in a problem set | 2, words right but math garbage |
+
+What that means in practice:
+
+- **Body text and equations: reliable.** The one equation error is instructive: the notes
+  printed a typo (`A_I`) and the model silently "corrected" it to a *different wrong* symbol
+  (`A_1`). A vision model normalises what it reads, so a slip in the source can come out as
+  a different slip.
 - **The book's own figure captions: verbatim.**
 - **The model's descriptions of diagrams: not reliable.** 22 of 93 were factually wrong, and
   about 1 in 4 analytical diagrams had a point, label or curve in the wrong place (two
@@ -405,8 +417,30 @@ page images found:
 - **Local-OCR pages: wrong where it matters.** In a problem set, `π = 0.8` came out as
   `T = 0.8` and `a = 1` as `a  l`.
 
+- **Dense diagrams are the weak spot.** The notes' simple, cleanly drawn diagrams did much
+  better than the textbook's scanned, multi-curve figures, but still had one error.
+
 If the Markdown is going to be used as context for an LLM, which then repeats a wrong figure
 description with confidence, review at least the OCR pages and the diagrams.
+
+### Check the wording for free: `--verify`
+
+A born-digital PDF carries its words in a text layer. That layer is too mangled to *be* the
+transcription (ligatures, split words, math glyphs out of order), which is why this tool
+reads the page image instead. But it is an exact record of *which words* are on the page:
+
+```bash
+python -m bettermarkitdown notes.pdf -o notes.md --work-dir <same as before> --verify
+```
+
+This compares every finished page with the text layer and lists the pages where words were
+dropped, invented or changed, including a single swapped word. It makes no API calls and
+exits with code 3 if anything is flagged. It also always flags pages still holding local-OCR
+text: OCR tends to get the words right and the math wrong, so a word match proves nothing
+there.
+
+It does not check math, figures, or scanned pages (no text layer). The report says how many
+pages it could not check, and those still need a look at the page image.
 
 **Fix the work dir, not the output.** The output is rebuilt from `<work-dir>/pages/`, so
 edit `<work-dir>/pages/NNNN.md` and then rerun the same command with `--no-vision` added.
@@ -423,6 +457,7 @@ Conventions that keep a reviewed file honest:
 | `<!-- source: transcribed by hand from the page scan … -->` | Replaces the local-OCR comment on a page you retyped |
 | `*[corrected in review: the original said …]*` | The model's description was wrong; record what it claimed |
 | `*[added in review]*` | Something important was missing, e.g. the data behind a chart |
+| `*[sic: …]*` | The **source** has the error; it is transcribed as printed and the note gives the intended reading. Keeps "the transcription is wrong" apart from "the professor made a typo" |
 
 Two more tricks follow from "the output is every file in `pages/`, in name order":
 
@@ -460,6 +495,7 @@ Two more tricks follow from "the output is every file in `pages/`, in name order
 | `--no-page-images` | off | Don't save a PNG of each scanned page |
 | `--no-ocr-fallback` | off | Leave refused pages unconverted instead of using local OCR |
 | `--fresh` | off | Redo pages already finished. **Overwrites hand edits in the work dir** — see [Reviewing the output](#reviewing-the-output) |
+| `--verify` | off | Convert nothing; check finished pages against the PDF text layer. See [`--verify`](#check-the-wording-for-free---verify) |
 
 ---
 

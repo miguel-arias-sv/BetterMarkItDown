@@ -73,7 +73,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="do not save a PNG of each scanned page")
     parser.add_argument("--no-ocr-fallback", dest="ocr_fallback", action="store_false",
                         help="do not fall back to local OCR on pages the model refuses")
-    parser.add_argument("--fresh", action="store_true", help="redo pages already finished")
+    parser.add_argument("--fresh", action="store_true",
+                        help="redo pages already finished. Overwrites hand edits in the "
+                             "work dir")
+    parser.add_argument("--verify", action="store_true",
+                        help="convert nothing: compare the finished pages in the work dir "
+                             "with the PDF's text layer and list pages whose wording differs. "
+                             "No API calls. Exit code 3 if any page is flagged")
     return parser
 
 
@@ -103,6 +109,26 @@ def main(argv: list[str] | None = None) -> int:
     if not pdf.is_file():
         print(f"Not found: {pdf}", file=sys.stderr)
         return 1
+
+    if args.verify:
+        import pymupdf
+
+        from .core import parse_pages
+        from .verify import format_report, verify
+
+        output = (Path(args.output).expanduser().resolve() if args.output
+                  else pdf.with_suffix(".md"))
+        work_dir = (Path(args.work_dir).expanduser().resolve() if args.work_dir
+                    else output.parent / (output.stem + "_work"))
+        if not (work_dir / "pages").is_dir():
+            print(f"No converted pages in {work_dir}. Pass the same -o / --work-dir "
+                  "you converted with.", file=sys.stderr)
+            return 1
+        with pymupdf.open(pdf) as doc:
+            total = doc.page_count
+        results = verify(pdf, work_dir, parse_pages(args.pages, total))
+        print(format_report(results))
+        return 3 if any(r.flagged for r in results) else 0
 
     if not api_key and not args.no_vision and gemini:
         print("No API key. Set GEMINI_API_KEY, create a .env file, or pass --no-vision.",
