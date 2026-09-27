@@ -1,6 +1,6 @@
 # BetterMarkItDown
 
-**Turn scanned and image-heavy PDFs into Markdown that actually contains the content.**
+**Turn scanned and image-heavy PDFs into Markdown including graphs, equations and images.**
 
 [Microsoft's MarkItDown](https://github.com/microsoft/markitdown) is excellent, and it has
 one gap that matters enormously for textbooks, papers and lecture notes: **its PDF path
