@@ -1,3 +1,4 @@
+![BetterMarkItDown banner](assets/banner.png)
 # BetterMarkItDown
 
 **Turn scanned and image-heavy PDFs into Markdown including graphs, equations and images.**
