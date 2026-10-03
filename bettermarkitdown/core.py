@@ -148,13 +148,23 @@ def _retry_after(message: str) -> float:
 # ---------------------------------------------------------------------------
 # Vision
 # ---------------------------------------------------------------------------
+def has_content(text: str) -> bool:
+    """False for a reply that is blank or only HTML comments.
+
+    The page prompt asks for a trailing `<!-- page number: N -->`, so a model that
+    transcribes nothing can still answer `<!-- page number:  -->`. That is as empty
+    as an empty string, and has to be treated as one.
+    """
+    return bool(re.sub(r"<!--.*?-->", "", text or "", flags=re.S).strip())
+
+
 def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
                    limiter: RateLimiter, meter: Meter | None = None,
                    reasoning: str = "none", max_retries: int = 5) -> str:
     key = hashlib.sha256(png + prompt.encode() + model.encode()
                          + str(reasoning).encode()).hexdigest()
     hit = cache.get(key)
-    if hit is not None:
+    if hit is not None and has_content(hit):   # older runs cached comment-only blanks
         return hit
 
     b64 = base64.b64encode(png).decode("ascii")
@@ -190,7 +200,7 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
             text = (response.choices[0].message.content or "").strip()
             text = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", text).strip()
 
-            if not text:
+            if not has_content(text):
                 # An empty answer is a failure, not a result. Never cache it:
                 # caching a blank makes the loss permanent, because the next run
                 # would "resume" straight past the page and you would never know.
@@ -322,7 +332,7 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
             body = describe_image(client, opts.model, png, PAGE_PROMPT, cache=cache,
                                   limiter=limiter, meter=meter, reasoning=opts.reasoning)
 
-            if not body.strip() or body.startswith("*[vision call failed"):
+            if not has_content(body) or body.startswith("*[vision call failed"):
                 recovered = local_ocr.ocr_page(page, opts.dpi) if opts.ocr_fallback else None
                 if recovered:
                     parts.append(

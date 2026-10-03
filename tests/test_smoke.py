@@ -161,3 +161,40 @@ def test_unknown_endpoint_reports_no_cost_rather_than_geminis(tmp_path: Path):
     told = Options(**common, base_url="https://openrouter.ai/api/v1", model="some/vl",
                    price_in=0.2, price_out=0.8)
     assert told.prices() == (0.2, 0.8)
+
+
+def test_comment_only_reply_counts_as_empty(tmp_path: Path, monkeypatch):
+    """`<!-- page number:  -->` alone once passed as a transcription and was cached,
+    so two pages came out blank with no fallback and no failure reported."""
+    import hashlib
+    from types import SimpleNamespace
+
+    from bettermarkitdown import core
+    from bettermarkitdown.core import Cache, RateLimiter, describe_image, has_content
+
+    assert not has_content("<!-- page number:  -->")
+    assert not has_content("  \n<!-- a -->\n<!-- b -->  ")
+    assert has_content("Text.\n\n<!-- page number: 12 -->")
+
+    replies = iter(["<!-- page number:  -->", "Real text.\n<!-- page number: 7 -->"])
+
+    def create(**_):
+        message = SimpleNamespace(content=next(replies))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")],
+                               usage=None)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(core.time, "sleep", lambda _: None)
+    cache = Cache(tmp_path / "cache.json")
+    limiter = RateLimiter(0)
+
+    out = describe_image(client, "m", b"png", "p", cache=cache, limiter=limiter)
+    assert out.startswith("Real text.")            # the blank was retried, not accepted
+    assert all(has_content(v) for v in cache.data.values())
+
+    # A blank cached by an older version is ignored, not served.
+    cache.data.clear()
+    key = hashlib.sha256(b"png2" + b"p" + b"m" + b"none").hexdigest()
+    cache.put(key, "<!-- page number:  -->")
+    replies = iter(["Fresh text."])
+    assert describe_image(client, "m", b"png2", "p", cache=cache, limiter=limiter) == "Fresh text."
