@@ -9,7 +9,8 @@ dropped sentences, invented text and garbled OCR for free, without any API call.
 What it cannot check: whether math and figures are *right*, or the words of
 scanned pages (no text layer). Those still need a look at the page image. It does
 check that the math is still well-formed on every page, scanned or not: a review
-note pasted into the middle of an equation block breaks it silently.
+note pasted into the middle of an equation block breaks it silently. When Node.js
+and KaTeX are installed, every formula is also rendered (see mathcheck.py).
 """
 
 from __future__ import annotations
@@ -176,7 +177,28 @@ def verify(pdf: Path, work_dir: Path, pages: list[int] | None = None,
     return results
 
 
-def format_report(results: list[PageCheck], limit: int = 20) -> str:
+def add_render_check(results: list[PageCheck], work_dir: Path) -> str:
+    """Render each checked page's formulas with KaTeX; failures join `math`, so the
+    page is flagged. Returns one line for the report, saying what ran or why not."""
+    from .mathcheck import render_check
+
+    pages = {}
+    for r in results:
+        path = work_dir / "pages" / f"{r.page:04d}.md"
+        if path.is_file():
+            pages[r.page] = path.read_text(encoding="utf-8")
+    problems, skipped = render_check(pages)
+    if skipped:
+        return f"Math render check skipped: {skipped}."
+    for r in results:
+        r.math += problems.get(r.page, [])
+    failed = sum(len(v) for v in problems.values())
+    return (f"Math render check (KaTeX): {failed} formula(s) failed to render."
+            if failed else "Math render check (KaTeX): every formula renders.")
+
+
+def format_report(results: list[PageCheck], limit: int = 20,
+                  render_note: str | None = None) -> str:
     def show(c: Counter) -> str:
         return " ".join(f"{w}x{n}" if n > 1 else w for w, n in c.most_common(limit)) or "-"
 
@@ -198,6 +220,8 @@ def format_report(results: list[PageCheck], limit: int = 20) -> str:
                  f"{n_ocr} still OCR, {n_math} with broken math, "
                  f"{counts['no-text-layer']} without a text layer (check those by eye), "
                  f"{counts['no-page-file']} not converted yet.")
+    if render_note:
+        lines.append(render_note)
     lines.append("Whether equations and figure descriptions are *correct* is not checked "
                  "here -- compare those with the page image.")
     return "\n".join(lines)

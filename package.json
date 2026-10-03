@@ -1,0 +1,9 @@
+{
+  "name": "bettermarkitdown-math-check",
+  "private": true,
+  "description": "Optional: KaTeX, so `bettermarkitdown --verify` can render every formula. Install with `npm install`.",
+  "license": "MIT",
+  "dependencies": {
+    "katex": "^0.19.0"
+  }
+}

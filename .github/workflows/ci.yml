@@ -28,6 +28,14 @@ jobs:
           # The OCR extra is heavy and not needed for the offline suite.
           pip install "markitdown[pdf]" openai pymupdf pillow rich pytest ruff
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install KaTeX
+        # Optional at runtime; installed here so the math render test runs instead of skipping.
+        run: npm ci
+
       - name: Lint
         run: ruff check bettermarkitdown tests
 

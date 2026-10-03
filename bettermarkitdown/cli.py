@@ -78,7 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "work dir")
     parser.add_argument("--verify", action="store_true",
                         help="convert nothing: compare the finished pages in the work dir "
-                             "with the PDF's text layer and list pages whose wording differs. "
+                             "with the PDF's text layer and list pages whose wording differs, "
+                             "and render every formula with KaTeX if Node.js is installed. "
                              "No API calls. Exit code 3 if any page is flagged")
     return parser
 
@@ -114,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         import pymupdf
 
         from .core import parse_pages
-        from .verify import format_report, verify
+        from .verify import add_render_check, format_report, verify
 
         output = (Path(args.output).expanduser().resolve() if args.output
                   else pdf.with_suffix(".md"))
@@ -127,7 +128,8 @@ def main(argv: list[str] | None = None) -> int:
         with pymupdf.open(pdf) as doc:
             total = doc.page_count
         results = verify(pdf, work_dir, parse_pages(args.pages, total))
-        print(format_report(results))
+        render_note = add_render_check(results, work_dir)
+        print(format_report(results, render_note=render_note))
         return 3 if any(r.flagged for r in results) else 0
 
     if not api_key and not args.no_vision and gemini:

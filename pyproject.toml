@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bettermarkitdown"
-version = "1.0.0"
+version = "1.1.0"
 description = "MarkItDown plus a vision layer, for scanned and image-heavy PDFs that plain text extraction turns into an empty file."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,11 +37,15 @@ bettermarkitdown = "bettermarkitdown.cli:main"
 bmid = "bettermarkitdown.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/YOUR-USERNAME/BetterMarkItDown"
-Issues = "https://github.com/YOUR-USERNAME/BetterMarkItDown/issues"
+Homepage = "https://github.com/miguel-arias-sv/BetterMarkItDown"
+Issues = "https://github.com/miguel-arias-sv/BetterMarkItDown/issues"
 
 [tool.setuptools.packages.find]
 include = ["bettermarkitdown*"]
+
+[tool.setuptools.package-data]
+# The KaTeX renderer that `--verify` runs under Node.js.
+bettermarkitdown = ["*.js"]
 
 [tool.ruff]
 line-length = 100

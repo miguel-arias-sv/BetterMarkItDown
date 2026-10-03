@@ -78,12 +78,22 @@ Charts become data you can reason about, not just alt text:
 ## Install
 
 ```bash
-pip install -r requirements.txt          # from inside the repo
-pip install -e .                         # or install it as a package
+git clone https://github.com/miguel-arias-sv/BetterMarkItDown.git
+cd BetterMarkItDown
+pip install -r requirements.txt          # everything the converter needs
+pip install -e .                         # optional: adds the `bettermarkitdown` / `bmid` commands
 ```
 
-<!-- Not yet published to GitHub. Once it is, this becomes:
-     git clone https://github.com/YOUR-USERNAME/BetterMarkItDown.git -->
+**Optional — math render check.** With [Node.js](https://nodejs.org) installed, `--verify`
+also renders every formula with KaTeX and flags the ones that would show up as red error
+boxes. One more command:
+
+```bash
+npm install                              # reads package.json: just KaTeX
+```
+
+If the repo lives in Google Drive, OneDrive or Dropbox, use `npm install -g katex` instead,
+so a `node_modules` folder is not synced. Without Node the check is skipped, never failed.
 
 > **The `[pdf]` extra is not optional.** A plain `pip install markitdown` cannot open a PDF
 > at all — it raises `MissingDependencyException` on every page. `requirements.txt` pins
@@ -445,6 +455,19 @@ unmatched `$$`, a blank line or a review note inside a display equation, and unm
 `\begin`/`\end`. Pasting a `*[sic]*` note into the middle of an `aligned` block is an easy
 slip during a review, and it breaks the equation silently.
 
+With Node.js and KaTeX installed (see [Install](#install)), it then renders every
+`$$display$$` and `$inline$` formula with KaTeX, the renderer most Markdown viewers use,
+and lists any that fail, by page:
+
+```
+page 168: broken math -- KaTeX parse error: Unexpected end of input in a macro argument, expected '}' at end of input: \frac{a}{b in `\frac{a}{b`
+Math render check (KaTeX): 1 formula(s) failed to render.
+```
+
+A 206-page textbook (4,600 formulas) checks in a few seconds. The most common real-world
+failure is not LaTeX at all: a dollar amount like `$100 ... $5.97` written without a
+backslash is read as one long formula. Write currency as `\$100`.
+
 It does not check whether equations and figure descriptions are *correct*, or the words of
 scanned pages (no text layer). The report says how many pages it could not check, and those
 still need a look at the page image.
@@ -502,7 +525,7 @@ Two more tricks follow from "the output is every file in `pages/`, in name order
 | `--no-page-images` | off | Don't save a PNG of each scanned page |
 | `--no-ocr-fallback` | off | Leave refused pages unconverted instead of using local OCR |
 | `--fresh` | off | Redo pages already finished. **Overwrites hand edits in the work dir** — see [Reviewing the output](#reviewing-the-output) |
-| `--verify` | off | Convert nothing; check finished pages against the PDF text layer. See [`--verify`](#check-the-wording-for-free---verify) |
+| `--verify` | off | Convert nothing; check finished pages against the PDF text layer, and render every formula with KaTeX if Node.js is installed. See [`--verify`](#check-the-wording-for-free---verify) |
 
 ---
 
@@ -517,10 +540,15 @@ book_assets/            extracted figures, only created if something is written 
 
 Delete the work dir to force a full, fully-billed re-run.
 
-Three behaviours here were bought with real mistakes, and the tests lock them in:
+Four behaviours here were bought with real mistakes, and the tests lock them in:
 
 - **Empty responses are never cached.** Caching a blank makes the loss permanent: the next
   run "resumes" straight past the page and you never learn it is missing.
+- **A reply that is only an HTML comment counts as empty.** The page prompt asks for a
+  trailing `<!-- page number: N -->`, and a model that transcribes nothing can still return
+  `<!-- page number:  -->`. That once passed as a transcription: two pages of a textbook
+  came out blank, with no OCR fallback and no failure reported. Such replies are now
+  retried, never cached, and ignored if an older version cached them.
 - **Output is assembled from the whole work dir, never from the current `--pages`
   selection.** Otherwise rerunning four pages rewrites your book as those four pages.
 - **A `content_filter` verdict is not retried.** It will never succeed, and five retries
@@ -533,8 +561,9 @@ Three behaviours here were bought with real mistakes, and the tests lock them in
 Python 3.10+, and a vision model to talk to — a hosted API key, or a local server.
 
 ```
-markitdown[pdf]  openai  pymupdf  pillow  rich
+markitdown[pdf]  openai  pymupdf  pillow  rich      # requirements.txt
 rapidocr-onnxruntime   # optional, for the local OCR fallback
+Node.js + katex        # optional, for the math render check in --verify (package.json)
 ```
 
 ### Environment variables
@@ -544,6 +573,7 @@ rapidocr-onnxruntime   # optional, for the local OCR fallback
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | API key, tried in that order |
 | `BMID_BASE_URL` / `OPENAI_BASE_URL` | Default endpoint, instead of passing `--base-url` |
 | `BMID_MODEL` | Default model, instead of passing `--model` |
+| `BMID_KATEX_DIR` | A folder whose `node_modules` holds KaTeX, if it is not in the repo or the global npm root |
 
 All of these can live in `.env` instead. A real environment variable always wins over the
 file.
@@ -556,7 +586,8 @@ python -m pytest tests -q
 ```
 
 The suite never touches the network — it generates its own PDF, covers the billing
-arithmetic, and includes regression tests for the two data-loss bugs above.
+arithmetic, and includes regression tests for the data-loss bugs above. The KaTeX render
+test is skipped when Node.js or KaTeX is missing; CI installs both so it always runs there.
 
 ## License
 

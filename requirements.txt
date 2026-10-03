@@ -9,3 +9,7 @@ rich>=13.0
 # Optional: local OCR fallback for pages the vision model refuses.
 # Remove this line if you do not want the ~80 MB of ONNX runtime it pulls in.
 rapidocr-onnxruntime>=1.2
+
+# Optional, not a pip package: Node.js + KaTeX let `--verify` render every formula.
+# Install Node.js (https://nodejs.org, or `winget install OpenJS.NodeJS.LTS`), then run
+# `npm install` in this folder (reads package.json) or `npm install -g katex`.
