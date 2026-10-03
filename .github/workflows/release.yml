@@ -1,0 +1,55 @@
+name: release
+
+# Push a tag like v1.2.0 to publish a GitHub Release: the wheel and source archive are
+# built, tested, and attached, and the version's section of CHANGELOG.md becomes the
+# release notes. Run it by hand (Actions tab -> release -> Run workflow) for a dry run
+# that builds and prints the notes without publishing anything.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write          # needed to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Release notes (checks the tag matches __version__ and CHANGELOG.md)
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            python scripts/release_notes.py "${GITHUB_REF_NAME}" > notes.md
+          else
+            python scripts/release_notes.py > notes.md
+          fi
+          cat notes.md
+
+      - name: Build wheel and source archive
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          ls -l dist
+
+      - name: Test the built wheel
+        run: |
+          pip install dist/*.whl pytest
+          bettermarkitdown --version
+          python -m pytest tests -q
+
+      - name: Publish the GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "BetterMarkItDown ${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            --verify-tag

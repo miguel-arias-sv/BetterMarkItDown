@@ -10,7 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import ocr
+from . import __version__, ocr
 from .config import (
     DEFAULT_MODEL,
     GEMINI_BASE_URL,
@@ -27,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="bettermarkitdown",
         description="Convert image-heavy and scanned PDFs to Markdown with "
                     "MarkItDown + Gemini vision.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("pdf", nargs="?", help="input PDF (omit for the interactive wizard)")
     parser.add_argument("-o", "--output", help="output .md (default: alongside the PDF)")
     parser.add_argument("--pages", help="1-based selection: '5', '10-40', '1,5,9-12'")

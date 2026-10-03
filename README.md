@@ -3,6 +3,10 @@
 
 **Turn scanned and image-heavy PDFs into Markdown including graphs, equations and images.**
 
+[![Latest release](https://img.shields.io/github/v/release/miguel-arias-sv/BetterMarkItDown)](https://github.com/miguel-arias-sv/BetterMarkItDown/releases/latest)
+[![Tests](https://github.com/miguel-arias-sv/BetterMarkItDown/actions/workflows/ci.yml/badge.svg)](https://github.com/miguel-arias-sv/BetterMarkItDown/actions/workflows/ci.yml)
+· [What's New](CHANGELOG.md)
+
 [Microsoft's MarkItDown](https://github.com/microsoft/markitdown) is excellent, and it has
 one gap that matters enormously for textbooks, papers and lecture notes: **its PDF path
 never looks at images.**
@@ -76,6 +80,20 @@ Charts become data you can reason about, not just alt text:
 ---
 
 ## Install
+
+**From a release (recommended).** One command installs a fixed, tested version and its
+dependencies, including the local OCR fallback:
+
+```bash
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.1.0"
+bettermarkitdown --version
+```
+
+Or download the `.whl` file from the [latest release](https://github.com/miguel-arias-sv/BetterMarkItDown/releases/latest)
+and run `pip install bettermarkitdown-<version>-py3-none-any.whl`. Each release lists what
+changed in it; the full history is in [CHANGELOG.md](CHANGELOG.md).
+
+**From source**, if you want to change the code:
 
 ```bash
 git clone https://github.com/miguel-arias-sv/BetterMarkItDown.git
@@ -588,6 +606,26 @@ python -m pytest tests -q
 The suite never touches the network — it generates its own PDF, covers the billing
 arithmetic, and includes regression tests for the data-loss bugs above. The KaTeX render
 test is skipped when Node.js or KaTeX is missing; CI installs both so it always runs there.
+
+## Releasing a new version
+
+The version number lives in one place, `__version__` in `bettermarkitdown/__init__.py`.
+
+1. Bump `__version__` (patch for fixes, minor for features, major for breaking changes).
+2. Add a `## [X.Y.Z] - YYYY-MM-DD` section at the top of [CHANGELOG.md](CHANGELOG.md) with a
+   short **What's New** for users, and update the version in the Install command above.
+3. Commit, then tag and push:
+
+   ```bash
+   git tag v1.2.0 && git push origin main v1.2.0
+   ```
+
+The [release workflow](.github/workflows/release.yml) then checks that the tag matches
+`__version__` and that the changelog has a section for it, builds and tests the wheel, and
+publishes a GitHub Release with the wheel and source archive attached and that version's
+What's New as the notes. A missing changelog section or a mismatched tag stops it before
+anything is published. To rehearse, run the workflow by hand from the Actions tab: it does
+everything except publish.
 
 ## License
 
