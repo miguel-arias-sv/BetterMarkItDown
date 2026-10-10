@@ -6,6 +6,10 @@ a text layer. That layer is often too mangled to use as the transcription itself
 of *which words* are on the page. Comparing bags of words against it catches
 dropped sentences, invented text and garbled OCR for free, without any API call.
 
+Numbers are compared the same way, separately from words. A codebook, a table of
+results or a problem set can have every word right and a wrong figure, and a word
+check alone would pass it.
+
 What it cannot check: whether math and figures are *right*, or the words of
 scanned pages (no text layer). Those still need a look at the page image. It does
 check that the math is still well-formed on every page, scanned or not: a review
@@ -20,7 +24,16 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .core import TRUNCATED_TAG
+
 _WORD = re.compile(r"[A-Za-z]+")
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+# '70 000' with an ordinary, non-breaking or thin space between digit groups, and
+# '70, 000', which is how some text layers store a plain '70,000'. Never joined up
+# front: in a table row '1,282 862,492' is two cells, not one number.
+_SPACED_THOUSANDS = re.compile(
+    r"(?<![\d.,])\d{1,3}(?:,?[    ]\d{3})+(?![\d,]|\.\d)")
+_LINK_TARGET = re.compile(r"\]\([^)\s]*\)")       # [text](url): the url is not page text
 # Typeset ligatures come out of the text layer as single glyphs (ﬁ, ﬀ) or vanish,
 # so drop the letter pairs from both sides rather than guess which happened.
 _LIGATURES = re.compile(r"ffi|ffl|ff|fi|fl")
@@ -40,6 +53,33 @@ def _words(text: str) -> list[str]:
     return [w for w in (_norm(m) for m in _WORD.findall(text)) if len(w) >= 3]
 
 
+def _numbers(text: str) -> list[str]:
+    """Numbers as written, with thousands separators removed: '33,099,725',
+    '33 099 725' and '33099725' are the same number; '(1,2)' is two numbers."""
+    out = []
+    for token in _NUMBER.findall(text):
+        if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", token):
+            out.append(token.replace(",", ""))
+        else:
+            out.extend(token.split(","))
+    return out
+
+
+def _reconcile_spaced_thousands(text: str, unmatched: Counter, other_side: Counter) -> None:
+    """Where `text` writes '70 000' as separate groups that are unmatched here while
+    '70000' is unmatched on the other side, they are the same number: drop both."""
+    for run in _SPACED_THOUSANDS.findall(text):
+        parts = _numbers(run)
+        joined = "".join(parts)
+        need = Counter(parts)
+        if other_side[joined] and all(unmatched[p] >= k for p, k in need.items()):
+            unmatched.subtract(need)
+            other_side[joined] -= 1
+    for c in (unmatched, other_side):
+        for key in [k for k, v in c.items() if v <= 0]:
+            del c[key]
+
+
 @dataclass
 class PageCheck:
     page: int                        # 1-based
@@ -49,10 +89,13 @@ class PageCheck:
     status: str = "ok"               # ok | flagged | no-text-layer | no-page-file
     ocr: bool = False                # page still carries the local-OCR fallback text
     math: list[str] = field(default_factory=list)       # structural problems in the math
+    numbers_missing: Counter = field(default_factory=Counter)
+    numbers_extra: Counter = field(default_factory=Counter)
+    truncated: bool = False          # the model hit its output limit on this page
 
     @property
     def flagged(self) -> bool:
-        return self.status == "flagged" or self.ocr or bool(self.math)
+        return self.status == "flagged" or self.ocr or bool(self.math) or self.truncated
 
 
 def math_problems(md: str) -> list[str]:
@@ -80,6 +123,7 @@ def split_markdown(md: str) -> tuple[str, str]:
     md = _COMMENT.sub(" ", md)
     other = " ".join(_MATH.findall(md))
     prose = _MATH.sub(" ", md)
+    prose = _LINK_TARGET.sub("] ", prose)
     prose = _REVIEW_MARK.sub(" ", prose)
     other += " " + " ".join(_QUOTE_LINE.findall(prose))
     prose = _QUOTE_LINE.sub(" ", prose)
@@ -132,27 +176,49 @@ def _forgive_math_fusion(missing: Counter, extra: Counter, md_words: Counter) ->
 
 
 def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
-               min_words: int = 20) -> PageCheck:
-    """Flag the page when more than `max_diff` words differ in total. The
-    default of 1 still catches a single swapped word (one missing + one extra)."""
+               max_number_diff: int = 0, min_words: int = 20) -> PageCheck:
+    """Flag the page when more than `max_diff` words differ in total, or more than
+    `max_number_diff` numbers. The word default of 1 still catches a single swapped
+    word (one missing + one extra); for numbers any difference counts."""
     # OCR keeps the words and wrecks the math, so a clean word match proves nothing
     # on these pages: always send them back for a look.
     ocr = _OCR_SOURCE in md
+    truncated = TRUNCATED_TAG in md
     math = math_problems(md)
     prose, other = split_markdown(md)
     md_words = Counter(_words(prose))
     raw = _words(pdf_text)
-    if len(raw) < min_words:
-        return PageCheck(page, len(raw), status="no-text-layer", ocr=ocr, math=math)
+    pdf_numbers = Counter(_numbers(pdf_text))
+    # A page of tables can be nearly all numbers: count them towards "has a text layer".
+    if len(raw) + sum(pdf_numbers.values()) < min_words:
+        return PageCheck(page, len(raw), status="no-text-layer", ocr=ocr, math=math,
+                         truncated=truncated)
     pdf_words = Counter(_pdf_words(pdf_text, md_words))
     other_letters = _norm(re.sub(r"[^A-Za-z]", "", other))
     missing = Counter({w: n for w, n in (pdf_words - md_words).items()
                        if w not in other_letters})
     extra = md_words - pdf_words
     _forgive_math_fusion(missing, extra, md_words)
-    flagged = sum(missing.values()) + sum(extra.values()) > max_diff
+
+    # Numbers in math, figure descriptions and comments (the page prompt's
+    # `<!-- page number: N -->`) may account for PDF numbers, but are never required.
+    # Equation text layers scatter a number's pieces ('1.96' stored as '96' and '.1'),
+    # so a piece found inside one of those numbers is accounted for too, the same way
+    # a word found inside the math is.
+    md_numbers = Counter(_numbers(prose))
+    in_comments = Counter(_numbers(" ".join(_COMMENT.findall(md))))
+    in_math = " ".join(_numbers(other))
+    numbers_missing = pdf_numbers - md_numbers - in_comments
+    numbers_extra = md_numbers - pdf_numbers
+    _reconcile_spaced_thousands(pdf_text, numbers_missing, numbers_extra)
+    _reconcile_spaced_thousands(prose, numbers_extra, numbers_missing)
+    numbers_missing = Counter({n: k for n, k in numbers_missing.items() if n not in in_math})
+
+    flagged = (sum(missing.values()) + sum(extra.values()) > max_diff
+               or sum(numbers_missing.values()) + sum(numbers_extra.values())
+               > max_number_diff)
     return PageCheck(page, len(raw), missing, extra, "flagged" if flagged else "ok", ocr,
-                     math)
+                     math, numbers_missing, numbers_extra, truncated)
 
 
 def verify(pdf: Path, work_dir: Path, pages: list[int] | None = None,
@@ -208,6 +274,12 @@ def format_report(results: list[PageCheck], limit: int = 20,
             lines.append(f"page {r.page}: FLAGGED ({r.pdf_words} words in the text layer)")
             lines.append(f"    missing from the Markdown: {show(r.missing)}")
             lines.append(f"    not in the PDF:            {show(r.extra)}")
+            if r.numbers_missing or r.numbers_extra:
+                lines.append(f"    numbers missing:           {show(r.numbers_missing)}")
+                lines.append(f"    numbers not in the PDF:    {show(r.numbers_extra)}")
+        if r.truncated:
+            lines.append(f"page {r.page}: cut off -- the model reached its output limit and "
+                         "the rest of the page is missing. Finish it from the PDF.")
         if r.ocr:
             lines.append(f"page {r.page}: still local-OCR text -- the words may match, but "
                          "math and layout are unreliable. Retype it from the page image.")
@@ -216,8 +288,9 @@ def format_report(results: list[PageCheck], limit: int = 20,
     counts = Counter(r.status for r in results)
     n_ocr = sum(r.ocr for r in results)
     n_math = sum(bool(r.math) for r in results)
+    n_cut = sum(r.truncated for r in results)
     lines.append(f"\n{counts['ok']} page(s) match the text layer, {counts['flagged']} flagged, "
-                 f"{n_ocr} still OCR, {n_math} with broken math, "
+                 f"{n_ocr} still OCR, {n_math} with broken math, {n_cut} cut off, "
                  f"{counts['no-text-layer']} without a text layer (check those by eye), "
                  f"{counts['no-page-file']} not converted yet.")
     if render_note:

@@ -198,3 +198,62 @@ def test_comment_only_reply_counts_as_empty(tmp_path: Path, monkeypatch):
     cache.put(key, "<!-- page number:  -->")
     replies = iter(["Fresh text."])
     assert describe_image(client, "m", b"png2", "p", cache=cache, limiter=limiter) == "Fresh text."
+
+
+def _fake_client(replies, seen_caps):
+    """An OpenAI-style client answering with (text, finish_reason) pairs in order."""
+    from types import SimpleNamespace
+
+    replies = iter(replies)
+
+    def create(**kwargs):
+        seen_caps.append(kwargs["max_tokens"])
+        text, reason = next(replies)
+        choice = SimpleNamespace(message=SimpleNamespace(content=text), finish_reason=reason)
+        return SimpleNamespace(choices=[choice], usage=None)
+
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+
+def test_reply_cut_off_at_the_token_cap_is_retried_with_more_room(tmp_path: Path):
+    """A dense table page stopped at 4,096 tokens and the partial page was cached as
+    if complete: the rest of the table and the text under it were silently lost."""
+    from bettermarkitdown.core import MAX_TOKENS, Cache, RateLimiter, describe_image
+
+    caps: list[int] = []
+    client = _fake_client([("| 1 | 2 |\n| 300 | 7.", "length"),
+                           ("| 1 | 2 |\n| 300 | 7.3 |\n\nThe paragraph below.", "stop")], caps)
+    cache = Cache(tmp_path / "cache.json")
+    out = describe_image(client, "m", b"png", "p", cache=cache, limiter=RateLimiter(0))
+
+    assert out.endswith("The paragraph below.")
+    assert caps == [MAX_TOKENS[0], MAX_TOKENS[1]]
+    assert list(cache.data.values()) == [out]          # only the complete reply is cached
+
+
+def test_reply_still_cut_off_at_the_largest_cap_is_marked_and_never_cached(tmp_path: Path):
+    from bettermarkitdown.core import (
+        MAX_TOKENS,
+        TRUNCATED_TAG,
+        Cache,
+        RateLimiter,
+        describe_image,
+    )
+
+    caps: list[int] = []
+    client = _fake_client([("short partial", "length"),
+                           ("a longer partial transcription", "length")], caps)
+    cache = Cache(tmp_path / "cache.json")
+    out = describe_image(client, "m", b"png", "p", cache=cache, limiter=RateLimiter(0))
+
+    assert out.startswith("a longer partial transcription")
+    assert TRUNCATED_TAG in out and "cut off" in out
+    assert caps == list(MAX_TOKENS)
+    assert cache.data == {}                            # a rerun will try again
+
+
+def test_cut_off_recognises_the_finish_reasons_servers_use():
+    from bettermarkitdown.core import cut_off
+
+    assert cut_off("length") and cut_off("MAX_TOKENS")
+    assert not cut_off("stop") and not cut_off("") and not cut_off("content_filter")

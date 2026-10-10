@@ -37,7 +37,7 @@ jobs:
         run: npm ci
 
       - name: Lint
-        run: ruff check bettermarkitdown tests
+        run: ruff check bettermarkitdown tests examples
 
       - name: Test
         run: python -m pytest tests -q

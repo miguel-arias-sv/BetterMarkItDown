@@ -76,6 +76,8 @@ Charts become data you can reason about, not just alt text:
 |---|---|---|---|
 | Scanned macroeconomics textbook | 163 | 464 KB of Markdown — 77,970 words, 2,347 inline LaTeX expressions, 103 display equations, 92 figure descriptions, 35 footnotes | **$0.58** |
 | Three LaTeX lecture-note PDFs (born-digital) | 45 | 102 KB — 594 inline expressions, 135 display equations, 24 figure descriptions | **$0.13** |
+| Survey documentation: CCHS 2022 user guides (Statistics Canada) | 72 | 200 KB; every page checked word by word and number by number with `--verify` | **$0.26** |
+| …and its codebooks, [parsed from the text layer](#codebooks-data-dictionaries-and-statistical-tables) | 281 | 255 variables, 59 derived variables, 108 CV tables; every number copied, not read | **$0** |
 
 ---
 
@@ -85,7 +87,7 @@ Charts become data you can reason about, not just alt text:
 dependencies, including the local OCR fallback:
 
 ```bash
-pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.1.0"
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.2.0"
 bettermarkitdown --version
 ```
 
@@ -232,6 +234,35 @@ Every page now counts as "scanned" and gets a full-page transcription. The same 
 back clean, with correct `$...$` math, `$$...$$` tagged equations and figure descriptions,
 at about $0.003/page. Check a sample either way — if the text path looks right, keep it,
 because it is free.
+
+### Codebooks, data dictionaries and statistical tables
+
+The opposite case: born-digital pages where the vision model is the wrong tool. A codebook
+is a grid of codes, frequencies and percentages, and every one of those digits is already
+exact in the text layer. Transcribing the page re-reads digits you already have, with a
+small chance of misreading each one, and a misread `1,336,749` → `1,386,749` looks as
+plausible as the real figure. Page-by-page output also splits records that continue onto
+the next page, and a page full of numbers can be too long for one reply (see
+[cut-off replies](#how-resuming-works)).
+
+Parse the layout instead. Keep the coordinates of every span, assign each number to its
+column by the column's right edge (numbers are right-aligned, so that is exact), and check
+the result with the document's own arithmetic. Frequencies must sum to the printed total,
+and the variables found must match the table of contents.
+
+[`examples/codebooks/`](examples/codebooks/) does this for Statistics Canada's **CCHS 2022
+public-use microdata** documentation: a 114-page data dictionary (255 variables), 49 pages
+of derived-variable specifications and 118 pages of CV tables. All of it was copied from
+the text layer for $0, every category table sums to its total, and every CV cell fits the
+formula its table was built from. The scripts are templates for that layout, not a
+general converter. The README there explains how to adapt them to another codebook in
+about an hour.
+
+| The document is… | Use |
+|---|---|
+| Prose, slides, a scanned book, figures | BetterMarkItDown |
+| A born-digital codebook, data dictionary, frequency or CV tables | A layout parser, as in [`examples/codebooks/`](examples/codebooks/) |
+| Born-digital prose *with* tables (a survey's user guide) | BetterMarkItDown, then [`--verify`](#check-the-wording-for-free---verify), which compares numbers as well as words |
 
 ### If your output lives in Google Drive, OneDrive or Dropbox
 
@@ -468,6 +499,25 @@ exits with code 3 if anything is flagged. It also always flags pages still holdi
 text: OCR tends to get the words right and the math wrong, so a word match proves nothing
 there.
 
+**Numbers are compared too, separately from words.** A table of results can have every word
+right and one figure wrong, and before v1.2.0 that page passed. Now any number that differs
+flags the page:
+
+```text
+page 21: FLAGGED (34 words in the text layer)
+    missing from the Markdown: -
+    not in the PDF:            -
+    numbers missing:           1336749
+    numbers not in the PDF:    1386749
+```
+
+Thousands separators do not count as differences (`70,000`, `70 000` and `$70,000$` are
+the same number), and neither does a number that equation text layers scatter into pieces
+(`1.96` stored as `96` and `.1`). On 338 checked pages of lecture slides, LaTeX notes and
+survey documentation, the number check did not flag a single page that the word check had
+passed. Pages
+[cut off at the output limit](#how-resuming-works) are always flagged.
+
 It also checks, on every page including scanned ones, that the math is still well-formed:
 unmatched `$$`, a blank line or a review note inside a display equation, and unmatched
 `\begin`/`\end`. Pasting a `*[sic]*` note into the middle of an `aligned` block is an easy
@@ -543,7 +593,7 @@ Two more tricks follow from "the output is every file in `pages/`, in name order
 | `--no-page-images` | off | Don't save a PNG of each scanned page |
 | `--no-ocr-fallback` | off | Leave refused pages unconverted instead of using local OCR |
 | `--fresh` | off | Redo pages already finished. **Overwrites hand edits in the work dir** — see [Reviewing the output](#reviewing-the-output) |
-| `--verify` | off | Convert nothing; check finished pages against the PDF text layer, and render every formula with KaTeX if Node.js is installed. See [`--verify`](#check-the-wording-for-free---verify) |
+| `--verify` | off | Convert nothing; check the words and numbers of finished pages against the PDF text layer, and render every formula with KaTeX if Node.js is installed. See [`--verify`](#check-the-wording-for-free---verify) |
 
 ---
 
@@ -558,7 +608,7 @@ book_assets/            extracted figures, only created if something is written 
 
 Delete the work dir to force a full, fully-billed re-run.
 
-Four behaviours here were bought with real mistakes, and the tests lock them in:
+Five behaviours here were bought with real mistakes, and the tests lock them in:
 
 - **Empty responses are never cached.** Caching a blank makes the loss permanent: the next
   run "resumes" straight past the page and you never learn it is missing.
@@ -571,6 +621,14 @@ Four behaviours here were bought with real mistakes, and the tests lock them in:
   selection.** Otherwise rerunning four pages rewrites your book as those four pages.
 - **A `content_filter` verdict is not retried.** It will never succeed, and five retries
   with exponential backoff waste a minute per page.
+- **A reply cut off at the output limit is not accepted as the page.** Each reply was
+  capped at 4,096 tokens, and a page holding a dense table needs more. The model stopped
+  mid-row and that partial page was cached as complete: the rest of the table and the
+  paragraphs below it were lost without a warning. Now a cut-off reply is retried with
+  room for 16,384 tokens, which costs nothing on pages that fit the first time. If it is
+  still cut off, the page keeps what came back plus a visible
+  `*[transcription cut off: …]*` note. It is listed at the end of the run, flagged by
+  `--verify`, and never cached.
 
 ---
 

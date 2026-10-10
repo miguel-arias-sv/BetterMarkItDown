@@ -11,6 +11,37 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
+## [1.2.0] - 2026-10-10
+
+### What's New
+
+- **`--verify` now checks numbers, not just words.** A page with every word right and one
+  figure wrong used to pass. Now any number that differs from the PDF flags the page, and
+  the report lists it. Thousands separators (`70,000`, `70 000`, `$70,000$`) are not counted
+  as differences, and neither are numbers that equation text layers break into pieces. On
+  338 pages of real lecture notes, slides and survey documentation, it did not flag a single
+  page that the word check had passed.
+- **A guide to codebooks, data dictionaries and statistical tables.** For born-digital
+  tables, the vision model is the wrong tool: every digit is already exact in the text
+  layer. The new README section explains when to parse the layout instead.
+  [`examples/codebooks/`](https://github.com/miguel-arias-sv/BetterMarkItDown/tree/main/examples/codebooks)
+  does it for Statistics Canada's CCHS 2022
+  documentation (255 variables, 59 derived variables, 108 CV tables), with checks that
+  every category table sums to its total and every CV fits its formula.
+- **Links no longer count as page text in `--verify`.** A URL written as
+  `[url](url)` appears twice in the Markdown and once in the PDF, which used to flag the
+  page.
+
+### Fixed
+
+- **Long pages could be cut off without warning.** Each reply was capped at 4,096 tokens.
+  On a page holding a dense table, the model stopped mid-row and the partial page was
+  cached as if it were complete: the rest of the table and the text below it were lost,
+  and nothing said so. A cut-off reply is now retried with room for 16,384 tokens, at no
+  extra cost on pages that fit the first time. A page that is still cut off keeps what came
+  back, ends with a visible note saying it is incomplete, is listed at the end of the run,
+  is flagged by `--verify`, and is never cached.
+
 ## [1.1.0] - 2026-10-02
 
 ### What's New

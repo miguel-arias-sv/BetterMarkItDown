@@ -113,6 +113,97 @@ def test_page_without_a_text_layer_is_reported_not_passed():
     assert check_page("Figure 3", MD, 3).status == "no-text-layer"
 
 
+# A codebook page: few words, many numbers. Every word can be right and a figure wrong.
+CODEBOOK_PDF = (
+    "Variable Name: WTP_50 Length: 1.0 Position: 59\n"
+    "Concept: Self-perceived weight - overweight / underweight / just about right\n"
+    "Universe: Respondents with DOWTP = 1 and PROXYSEX = (1, 2)\n"
+    "Answer Categories Code Frequency Weighted Frequency %\n"
+    "Overweight 1 27,143 12,027,139 36.3\n"
+    "Underweight 2 2,399 1,336,749 4.0\n"
+    "Just about right 3 36,255 18,873,345 57.0\n"
+    "Not stated 9 1,282 862,492 2.6\n"
+    "Total 67,079 33,099,725 100.0\n"
+    "21\n"
+)
+
+CODEBOOK_MD = """
+## Page 21
+
+- **Variable Name:** WTP_50 · **Length:** 1.0 · **Position:** 59
+- **Concept:** Self-perceived weight - overweight / underweight / just about right
+- **Universe:** Respondents with DOWTP = 1 and PROXYSEX = (1, 2)
+
+| Answer Categories | Code | Frequency | Weighted Frequency | % |
+|---|---:|---:|---:|---:|
+| Overweight | 1 | 27,143 | 12,027,139 | 36.3 |
+| Underweight | 2 | 2,399 | 1,336,749 | 4.0 |
+| Just about right | 3 | 36,255 | 18,873,345 | 57.0 |
+| Not stated | 9 | 1,282 | 862,492 | 2.6 |
+| **Total** | | **67,079** | **33,099,725** | **100.0** |
+
+<!-- page number: 21 -->
+"""
+
+
+def test_faithful_codebook_page_passes():
+    result = check_page(CODEBOOK_PDF, CODEBOOK_MD, 21)
+    assert result.status == "ok", (result.numbers_missing, result.numbers_extra)
+
+
+def test_a_changed_number_is_flagged_even_when_every_word_matches():
+    result = check_page(CODEBOOK_PDF, CODEBOOK_MD.replace("1,336,749", "1,386,749"), 21)
+    assert result.flagged
+    assert not result.missing and not result.extra             # the words are all fine
+    assert result.numbers_missing["1336749"] == 1
+    assert result.numbers_extra["1386749"] == 1
+
+
+def test_a_page_of_numbers_is_checked_not_skipped():
+    # Fewer than 20 words, but plenty of numbers: it has a text layer worth checking.
+    assert check_page(CODEBOOK_PDF, CODEBOOK_MD, 21).status != "no-text-layer"
+
+
+def test_thousands_separators_do_not_count_as_differences():
+    pdf = CODEBOOK_PDF + "a minimum population size of 70, 000 inhabitants, or 70 000.\n"
+    md = CODEBOOK_MD + "\na minimum population size of $70,000$ inhabitants, or 70,000.\n"
+    assert check_page(pdf, md, 21).status == "ok"
+    # ...and the other way round: spaced in the Markdown, plain in the PDF
+    md = CODEBOOK_MD + "\na minimum population size of 70 000 inhabitants, or 70 000.\n"
+    pdf = CODEBOOK_PDF + "a minimum population size of 70000 inhabitants, or 70,000.\n"
+    assert check_page(pdf, md, 21).status == "ok"
+
+
+def test_adjacent_table_cells_are_not_read_as_one_spaced_number():
+    # '1,282 862,492' is two cells. Joining them would hide a wrong cell.
+    md = CODEBOOK_MD.replace("| 1,282 | 862,492 |", "| 1,282 | 862,493 |")
+    result = check_page(CODEBOOK_PDF, md, 21)
+    assert result.numbers_missing["862492"] == 1 and result.numbers_extra["862493"] == 1
+
+
+def test_link_targets_are_not_counted_as_page_text():
+    pdf = CODEBOOK_PDF + "see https://www150.statcan.gc.ca/n1/pub/82-003-x/10795-eng.pdf\n"
+    url = "https://www150.statcan.gc.ca/n1/pub/82-003-x/10795-eng.pdf"
+    md = CODEBOOK_MD + f"\nsee [{url}]({url})\n"
+    assert check_page(pdf, md, 21).status == "ok"
+
+
+def test_number_pieces_scattered_by_an_equation_text_layer_are_forgiven():
+    # PowerPoint equations store '1.96' as '96' and '.1' in the text layer.
+    pdf = PDF_TEXT + "P 96 .1 Z 96 .1 95 .0\n"
+    md = MD + "\n$$P(-1.96 \\le Z \\le 1.96) = 0.95$$\n"
+    assert check_page(pdf, md, 3).status == "ok"
+
+
+def test_a_page_cut_off_at_the_output_limit_is_flagged():
+    from bettermarkitdown.core import TRUNCATION_NOTE
+
+    result = check_page(PDF_TEXT, MD + TRUNCATION_NOTE, 3)
+    assert result.truncated and result.flagged
+    # ...also when the page has no text layer to compare against
+    assert check_page("Figure 3", MD + TRUNCATION_NOTE, 3).flagged
+
+
 def test_cli_verify_exit_codes(tmp_path: Path):
     pymupdf = pytest.importorskip("pymupdf")
     from bettermarkitdown.cli import main

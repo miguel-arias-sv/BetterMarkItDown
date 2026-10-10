@@ -79,8 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
                              "work dir")
     parser.add_argument("--verify", action="store_true",
                         help="convert nothing: compare the finished pages in the work dir "
-                             "with the PDF's text layer and list pages whose wording differs, "
-                             "and render every formula with KaTeX if Node.js is installed. "
+                             "with the PDF's text layer and list pages whose words or numbers "
+                             "differ, and render every formula with KaTeX if Node.js is "
+                             "installed. "
                              "No API calls. Exit code 3 if any page is flagged")
     return parser
 
@@ -191,6 +192,12 @@ def main(argv: list[str] | None = None) -> int:
               f"{', '.join(str(n) for n in result.pages_ocr)}")
         print("   The model refused these (usually its recitation filter). Layout is "
               "flattened and notation is unreliable there.")
+
+    if result.truncated:
+        print(f"\n!! {len(result.truncated)} page(s) were cut off at the model's output limit "
+              f"and are incomplete: {', '.join(str(n) for n in result.truncated)}")
+        print("   Each one ends with a note saying so, and --verify flags it. Finish those "
+              "pages by hand from the PDF (edit <work-dir>/pages/NNNN.md).")
 
     if result.failed:
         print(f"\n!! {len(result.failed)} page(s) produced no transcription and are NOT in "

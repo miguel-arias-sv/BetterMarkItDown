@@ -51,6 +51,17 @@ class PageFailed(RuntimeError):
 ABORT = threading.Event()
 NO_REASONING_PARAM: set[str] = set()
 
+# Output-token caps, tried in order. Almost every page fits in the first; a dense
+# full-page table does not, and a reply cut off at the cap used to be cached as if
+# it were the whole page. The larger cap is only paid for when it is needed.
+MAX_TOKENS = (4096, 16384)
+# Marks a reply that was still cut off at the largest cap. verify.py flags any page
+# carrying it, and the run summary lists it.
+TRUNCATED_TAG = "<!-- bmid: truncated -->"
+TRUNCATION_NOTE = (f"\n\n{TRUNCATED_TAG}\n*[transcription cut off: the model reached its "
+                   "output limit before the end of this page, so the rest of it is missing. "
+                   "Check the PDF.]*")
+
 
 # ---------------------------------------------------------------------------
 # Plumbing
@@ -158,6 +169,13 @@ def has_content(text: str) -> bool:
     return bool(re.sub(r"<!--.*?-->", "", text or "", flags=re.S).strip())
 
 
+def cut_off(finish_reason: str) -> bool:
+    """True when the reply stopped at the output-token cap rather than finishing.
+    OpenAI-compatible servers, Gemini's included, report this as 'length'."""
+    reason = (finish_reason or "").lower()
+    return "length" in reason or "max_tokens" in reason
+
+
 def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
                    limiter: RateLimiter, meter: Meter | None = None,
                    reasoning: str = "none", max_retries: int = 5) -> str:
@@ -170,6 +188,8 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
     b64 = base64.b64encode(png).decode("ascii")
     delay = 4.0
     last_err: Exception | None = None
+    step = 0                   # index into MAX_TOKENS
+    partial = ""               # the longest cut-off reply so far
 
     for attempt in range(max_retries):
         if ABORT.is_set():
@@ -191,7 +211,7 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
                     ],
                 }],
                 temperature=0.0,
-                max_tokens=4096,
+                max_tokens=MAX_TOKENS[step],
                 **extra,
             )
             if meter is not None:
@@ -199,12 +219,25 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
 
             text = (response.choices[0].message.content or "").strip()
             text = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", text).strip()
+            reason = str(response.choices[0].finish_reason or "")
+
+            if cut_off(reason):
+                # A reply that hit the cap is incomplete, however long it looks.
+                # Ask again with room to finish; if even the largest cap is not
+                # enough, keep what came back but say so on the page. Never cache
+                # it: a cached partial page would pass for a whole one forever.
+                if has_content(text) and len(text) > len(partial):
+                    partial = text
+                if step + 1 < len(MAX_TOKENS):
+                    step += 1
+                    continue
+                if partial:
+                    return partial + TRUNCATION_NOTE
 
             if not has_content(text):
                 # An empty answer is a failure, not a result. Never cache it:
                 # caching a blank makes the loss permanent, because the next run
                 # would "resume" straight past the page and you would never know.
-                reason = str(response.choices[0].finish_reason or "")
                 last_err = RuntimeError(f"empty response (finish_reason={reason})")
                 if "content_filter" in reason or "RECITATION" in reason:
                     break          # a verdict, not a hiccup: retrying cannot help
@@ -226,6 +259,9 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
             if "reasoning_effort" in message and model not in NO_REASONING_PARAM:
                 NO_REASONING_PARAM.add(model)     # older model: drop the param
                 continue
+            if partial and step > 0 and re.search(r"max_tokens|context|too large", message, re.I):
+                # A local server whose context is smaller than the larger cap.
+                return partial + TRUNCATION_NOTE
             if ABORT.is_set():
                 raise BudgetExceeded(message) from exc
             if attempt == max_retries - 1:
@@ -303,8 +339,9 @@ def figure_regions(page, min_pt: float):
 
 
 def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
-                 cache: Cache, limiter: RateLimiter, meter: Meter) -> tuple[int, str, bool]:
-    """Convert one page. Returns (index, markdown, used_local_ocr)."""
+                 cache: Cache, limiter: RateLimiter,
+                 meter: Meter) -> tuple[int, str, bool, bool]:
+    """Convert one page. Returns (index, markdown, used_local_ocr, truncated)."""
     import pymupdf
 
     doc = pymupdf.open(pdf_path)   # one handle per thread: PyMuPDF is not thread-safe
@@ -340,17 +377,18 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                         "nothing for this page, usually its recitation/copyright filter. "
                         "Layout is flattened and any mathematical notation here is "
                         "unreliable - check it against the PDF. -->\n\n" + recovered)
-                    return index, "\n".join(parts), True
+                    return index, "\n".join(parts), True, False
                 raise PageFailed(f"page {index + 1}: {body.strip() or 'empty response'}")
 
             parts.append("<!-- source: full-page vision transcription -->\n\n" + body)
             if opts.save_images:
                 parts.append(f"\n\n![Page {index + 1} scan]"
                              f"({assets.name}/page_{index + 1:04d}.png)")
-            return index, "\n".join(parts), False
+            return index, "\n".join(parts), False, TRUNCATED_TAG in body
 
         parts.append(text if text else "*[no extractable text on this page]*")
 
+        truncated = False
         if not opts.no_vision:
             for n, rect in enumerate(figure_regions(page, opts.min_figure_pt), start=1):
                 # Widen the crop: axis labels, legends and captions sit just
@@ -365,13 +403,14 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                 description = describe_image(client, opts.model, png, FIGURE_PROMPT,
                                              cache=cache, limiter=limiter, meter=meter,
                                              reasoning=opts.reasoning)
+                truncated = truncated or TRUNCATED_TAG in description
                 quoted = "\n".join("> " + line if line.strip() else ">"
                                    for line in description.splitlines())
                 parts.append(
                     f"\n\n![Page {index + 1}, figure {n}]({assets.name}/{name})\n\n"
                     f"**Figure {index + 1}.{n} - transcribed by {opts.model}:**\n\n{quoted}")
 
-        return index, "\n".join(parts), False
+        return index, "\n".join(parts), False, truncated
     finally:
         doc.close()
 
@@ -482,7 +521,7 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
         if ABORT.is_set():
             return
         try:
-            idx, text, used_ocr = process_page(
+            idx, text, used_ocr, truncated = process_page(
                 index, pdf_path=str(opts.pdf), md=md, client=client,
                 opts=opts, cache=cache, limiter=limiter, meter=meter)
         except (DailyQuotaExceeded, BudgetExceeded) as exc:
@@ -499,6 +538,8 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
             result.pages_converted += 1
             if used_ocr:
                 result.pages_ocr.append(idx + 1)
+            if truncated:
+                result.truncated.append(idx + 1)
             count = result.pages_converted
             if count % 10 == 0:
                 assemble(partial=True)
@@ -516,6 +557,7 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
     result.cost = meter.cost()
     result.pages_ocr.sort()
     result.failed.sort()
+    result.truncated.sort()
     if ABORT.is_set() and opts.budget_usd and meter.cost() > opts.budget_usd:
         result.stopped_reason = "budget"
     emit("finished", result=result)

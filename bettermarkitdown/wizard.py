@@ -247,6 +247,10 @@ def _run(opts: Options) -> int:
         summary.add_row("Local OCR pages",
                         ", ".join(str(n) for n in result.pages_ocr)
                         + "  [dim](model refused; notation unreliable)[/]")
+    if result.truncated:
+        summary.add_row("[yellow]Cut off[/]",
+                        ", ".join(str(n) for n in result.truncated)
+                        + "  [dim](hit the output limit; finish by hand)[/]")
     if result.failed:
         summary.add_row("[yellow]Not converted[/]",
                         ", ".join(str(n) for n in result.failed) + "  [dim](rerun to retry)[/]")
@@ -257,7 +261,8 @@ def _run(opts: Options) -> int:
         per_page = result.cost / max(1, result.pages_converted)
         summary.add_row("Per page", Meter.usd(per_page))
 
-    border = "yellow" if (result.failed or result.stopped_reason) else "green"
+    border = ("yellow" if (result.failed or result.truncated or result.stopped_reason)
+              else "green")
     title = "[bold]Stopped early[/]" if result.stopped_reason else "[bold]Done[/]"
     console.print(Panel(summary, title=title, border_style=border, expand=False))
 

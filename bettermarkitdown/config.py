@@ -166,6 +166,7 @@ class Result:
     pages_converted: int = 0
     pages_ocr: list[int] = field(default_factory=list)
     failed: list[int] = field(default_factory=list)
+    truncated: list[int] = field(default_factory=list)   # cut off at the output-token cap
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
