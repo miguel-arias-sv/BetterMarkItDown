@@ -38,7 +38,11 @@ _LINK_TARGET = re.compile(r"\]\([^)\s]*\)")       # [text](url): the url is not 
 # so drop the letter pairs from both sides rather than guess which happened.
 _LIGATURES = re.compile(r"ffi|ffl|ff|fi|fl")
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
-_MATH = re.compile(r"\$\$.*?\$\$|\$[^$\n]*\$", re.S)
+# An escaped `\$` is a dollar sign, not a delimiter: '\$1900 ... when $P$' must not
+# pair the currency sign with the formula's opening `$`.
+_MATH = re.compile(r"(?<!\\)\$\$.*?(?<!\\)\$\$|(?<!\\)\$(?:\\.|[^$\\\n])*\$", re.S)
+_DISPLAY_DELIM = re.compile(r"(?<!\\)\$\$")
+_NOTE_LABEL = re.compile(r"\[\^(\w+)\]:?")       # [^12] and [^12]: are labels, not page text
 _REVIEW_MARK = re.compile(r"\*\[[^\]]*\]\*")     # *[sic: ...]*, *[corrected in review: ...]*
 _QUOTE_LINE = re.compile(r"^>.*$", re.M)          # figure descriptions are blockquotes
 _PAGE_HEADING = re.compile(r"^## Page \d+\s*$", re.M)
@@ -92,10 +96,12 @@ class PageCheck:
     numbers_missing: Counter = field(default_factory=Counter)
     numbers_extra: Counter = field(default_factory=Counter)
     truncated: bool = False          # the model hit its output limit on this page
+    markup: list[str] = field(default_factory=list)     # footnote, currency, table faults
 
     @property
     def flagged(self) -> bool:
-        return self.status == "flagged" or self.ocr or bool(self.math) or self.truncated
+        return (self.status == "flagged" or self.ocr or bool(self.math) or self.truncated
+                or bool(self.markup))
 
 
 def math_problems(md: str) -> list[str]:
@@ -103,7 +109,7 @@ def math_problems(md: str) -> list[str]:
     whether an equation is correct."""
     md = _COMMENT.sub(" ", md)
     problems = []
-    if md.count("$$") % 2:
+    if len(_DISPLAY_DELIM.findall(md)) % 2:
         problems.append("unmatched $$")
     else:
         for block in re.findall(r"\$\$(.*?)\$\$", md, re.S):
@@ -128,7 +134,97 @@ def split_markdown(md: str) -> tuple[str, str]:
     other += " " + " ".join(_QUOTE_LINE.findall(prose))
     prose = _QUOTE_LINE.sub(" ", prose)
     prose = _PAGE_HEADING.sub(" ", prose)
+    prose = _NOTE_LABEL.sub(" ", prose)
     return prose, other
+
+
+# Placeholders the model writes when a page has a note marker but the note's text
+# is printed elsewhere (a book's chapter endnotes): "[footnote text not present on
+# this page]", "Text of footnote 18 not present on this page.", "text missing from image".
+_PLACEHOLDER = re.compile(
+    r"foot ?notes?\b.{0,40}\b(?:not (?:present|visible|shown|provided|printed|included|"
+    r"available|given)|missing|omitted)"
+    r"|\btext (?:is )?(?:not (?:present|visible|shown|provided|printed|included|available)"
+    r"|missing|omitted)"
+    r"|^\[?illegible\b", re.I)
+_NOTE_DEF = re.compile(r"^\[\^(\w+)\]:[ \t]*(.*)$", re.M)
+# A marker the model wrote as a math superscript. After punctuation or emphasis any
+# number counts; after a letter only two digits do, so units such as m$^2$ pass.
+_MATH_MARKER = re.compile(r"(?:(?<=[.,;:?!)\"”’*])\$\^\{?\d{1,3}\}?\$"
+                          r"|(?<=[A-Za-z])\$\^\{?\d{2,3}\}?\$)")
+_FUSED_NOTE = re.compile(r"^(?:\[\^\d+\](?!:)|\[<u>\d+</u>\])\S", re.M)
+_LATEX_TABLE = re.compile(r"\\(?:multicolumn|multirow|hline|cline)\b")
+# `$` + an amount that is not a closed `$12$` formula.
+_CURRENCY = re.compile(r"(?:(?<=[\s(“—–])|^)\$(?=\d[\d,]*(?:\.\d+)?(?:s\b|[\s,.;:)\-–]|$))"
+                       r"(?![\d,.]*\$)", re.M)
+
+
+def _looks_like_currency(md: str, i: int) -> bool:
+    """`$` at i opens a formula unless the span to the next `$` on its line reads as
+    prose: it ends in a space ('$1.23, 7-Up $1.12'), holds four or more words, or
+    never closes."""
+    end = md.find("\n", i)
+    rest = md[i + 1:end if end != -1 else len(md)]
+    close = re.search(r"(?<!\\)\$", rest)
+    if close is None:
+        return True
+    span = rest[:close.start()]
+    words = re.findall(r"[A-Za-z]{2,}", re.sub(r"\\[A-Za-z]+(?:\{[^}]*\})?", " ", span))
+    return span.endswith(" ") or len(words) >= 4
+
+
+def markup_problems(md: str) -> list[str]:
+    """Faults in the Markdown itself that a word count cannot see: invented
+    footnotes, footnote markers or labels in the wrong form, dollar signs that
+    renderers will read as math, and LaTeX table commands inside Markdown tables."""
+    text = _COMMENT.sub(" ", md)
+    problems = []
+    prose_lines = _NOTE_DEF.sub(" ", text)
+    for label, body in _NOTE_DEF.findall(text):
+        body = body.strip()
+        if not body or body.strip("[]*. ") == label:
+            problems.append(f"footnote [^{label}] has no text (a stub)")
+        elif _PLACEHOLDER.search(body.strip("[]* ")):
+            problems.append(f"footnote [^{label}] is a placeholder, not the book's text: "
+                            f"{body[:60]!r}")
+        elif len(body) > 40 and body.rstrip(".") in prose_lines:
+            problems.append(f"footnote [^{label}] repeats a sentence from the page body")
+    for m in _MATH_MARKER.finditer(text):
+        problems.append(f"footnote marker written as math {m.group()!r}; use [^n]")
+    for m in _FUSED_NOTE.finditer(text):
+        problems.append(f"note label fused to its text {m.group()!r}; use [^n]: text")
+    displays = [(a.start(), a.end())
+                for a in re.finditer(r"(?<!\\)\$\$.*?(?<!\\)\$\$", text, re.S)]
+    for m in _CURRENCY.finditer(text):
+        in_display = any(a <= m.start() < b for a, b in displays)
+        if not in_display and _looks_like_currency(text, m.start()):
+            problems.append("unescaped dollar sign, probably money "
+                            f"{text[m.start():m.start() + 12]!r}; write \\$")
+    prose = _MATH.sub(" ", text)
+    if _LATEX_TABLE.search(prose):
+        problems.append("LaTeX table command (\\multicolumn, \\hline, ...) in a Markdown "
+                        "table; it will not render")
+    return problems
+
+
+def _forgive_fused_markers(md: str, missing: Counter, extra: Counter) -> None:
+    """The text layer runs a superscript note marker into what precedes it: '0.9926'
+    + marker 22 becomes '0.992622', 'year 2014.' + 3 becomes '2014.3', and a marker
+    alone is just '22'. Drop those when the Markdown has the marker."""
+    labels = Counter(re.findall(r"\[\^(\d+)\]", md))
+    for num in list(missing):
+        if num in labels:
+            missing[num] -= labels[num]
+            continue
+        for lab in labels:
+            base = num[:-len(lab)].rstrip(".,") if num.endswith(lab) else ""
+            if base and extra.get(base):
+                missing[num] -= 1
+                extra[base] -= 1
+                break
+    for c in (missing, extra):
+        for key in [k for k, v in c.items() if v <= 0]:
+            del c[key]
 
 
 def _pdf_words(pdf_text: str, known: Counter) -> list[str]:
@@ -185,6 +281,7 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     ocr = _OCR_SOURCE in md
     truncated = TRUNCATED_TAG in md
     math = math_problems(md)
+    markup = markup_problems(md)
     prose, other = split_markdown(md)
     md_words = Counter(_words(prose))
     raw = _words(pdf_text)
@@ -192,7 +289,7 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     # A page of tables can be nearly all numbers: count them towards "has a text layer".
     if len(raw) + sum(pdf_numbers.values()) < min_words:
         return PageCheck(page, len(raw), status="no-text-layer", ocr=ocr, math=math,
-                         truncated=truncated)
+                         truncated=truncated, markup=markup)
     pdf_words = Counter(_pdf_words(pdf_text, md_words))
     other_letters = _norm(re.sub(r"[^A-Za-z]", "", other))
     missing = Counter({w: n for w, n in (pdf_words - md_words).items()
@@ -213,12 +310,13 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     _reconcile_spaced_thousands(pdf_text, numbers_missing, numbers_extra)
     _reconcile_spaced_thousands(prose, numbers_extra, numbers_missing)
     numbers_missing = Counter({n: k for n, k in numbers_missing.items() if n not in in_math})
+    _forgive_fused_markers(md, numbers_missing, numbers_extra)
 
     flagged = (sum(missing.values()) + sum(extra.values()) > max_diff
                or sum(numbers_missing.values()) + sum(numbers_extra.values())
                > max_number_diff)
     return PageCheck(page, len(raw), missing, extra, "flagged" if flagged else "ok", ocr,
-                     math, numbers_missing, numbers_extra, truncated)
+                     math, numbers_missing, numbers_extra, truncated, markup)
 
 
 def verify(pdf: Path, work_dir: Path, pages: list[int] | None = None,
@@ -285,14 +383,21 @@ def format_report(results: list[PageCheck], limit: int = 20,
                          "math and layout are unreliable. Retype it from the page image.")
         if r.math:
             lines.append(f"page {r.page}: broken math -- {'; '.join(r.math)}")
+        for problem in r.markup:
+            lines.append(f"page {r.page}: markup -- {problem}")
     counts = Counter(r.status for r in results)
+    n_markup = sum(bool(r.markup) for r in results)
+    no_layer = [r.page for r in results if r.status == "no-text-layer"]
     n_ocr = sum(r.ocr for r in results)
     n_math = sum(bool(r.math) for r in results)
     n_cut = sum(r.truncated for r in results)
     lines.append(f"\n{counts['ok']} page(s) match the text layer, {counts['flagged']} flagged, "
-                 f"{n_ocr} still OCR, {n_math} with broken math, {n_cut} cut off, "
+                 f"{n_ocr} still OCR, {n_math} with broken math, {n_markup} with markup "
+                 f"problems, {n_cut} cut off, "
                  f"{counts['no-text-layer']} without a text layer (check those by eye), "
                  f"{counts['no-page-file']} not converted yet.")
+    if no_layer:
+        lines.append("Pages without a text layer: " + ", ".join(map(str, no_layer)) + ".")
     if render_note:
         lines.append(render_note)
     lines.append("Whether equations and figure descriptions are *correct* is not checked "
