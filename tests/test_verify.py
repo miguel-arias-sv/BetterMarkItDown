@@ -204,6 +204,103 @@ def test_a_page_cut_off_at_the_output_limit_is_flagged():
     assert check_page("Figure 3", MD + TRUNCATION_NOTE, 3).flagged
 
 
+# A textbook page with chapter endnotes: the markers are on the page, the note
+# texts are printed at the end of the chapter. Cases from Hill, Griffiths and Lim,
+# *Principles of Econometrics*, 5th ed.
+BOOK_PDF = (
+    "In this example, we consider data used by Riphahn, Wambach, and Million (2003)22.\n"
+    "The data file contains data on 1,200 individuals and the correlation between the\n"
+    "divorce rate in Maine and the per capita consumption of margarine is 0.992623 over\n"
+    "the period 2000 to 2009. If the advertising budget is $1900, Big Andy plans staffing\n"
+    "and purchasing of inputs on the assumption that sales are maximized at that level.\n"
+)
+BOOK_MD = """
+## Page 1050
+
+<!-- source: full-page vision transcription -->
+
+In this example, we consider data used by Riphahn, Wambach, and Million (2003)[^22].
+The data file contains data on 1,200 individuals and the correlation between the
+divorce rate in Maine and the per capita consumption of margarine is 0.9926[^23] over
+the period 2000 to 2009. If the advertising budget is \\$1900, Big Andy plans staffing
+and purchasing of inputs on the assumption that $SALES$ are maximized at that level.
+"""
+
+
+def test_endnote_markers_fused_to_numbers_by_the_text_layer_are_forgiven():
+    result = check_page(BOOK_PDF, BOOK_MD, 1050)
+    assert not result.numbers_missing and not result.numbers_extra
+    assert result.status == "ok" and not result.markup
+
+
+def test_escaped_dollar_is_not_paired_with_the_next_formula():
+    # '\$1900 ... $SALES$' used to be read as one formula, hiding the words between.
+    result = check_page(BOOK_PDF, BOOK_MD.replace("of inputs", "of"), 1050)
+    assert result.missing["inputs"] == 1
+
+
+@pytest.mark.parametrize("definition", [
+    "[^22]: [footnote text not present on page]",
+    "[^22]: [illegible: text for footnote 22 missing on page]",
+    "[^22]: Text of footnote 22 not present on this page.",
+    "[^22]: text missing from image",
+    "[^22]: 22",
+])
+def test_invented_footnote_text_is_flagged(definition):
+    result = check_page(BOOK_PDF, BOOK_MD + "\n" + definition + "\n", 1050)
+    assert result.flagged and result.markup
+
+
+def test_footnote_repeating_a_body_sentence_is_flagged():
+    from bettermarkitdown.verify import markup_problems
+    md = ("However, the logit model is widely used in many disciplines and leads to very "
+          "convenient generalizations.[^2] We will discuss both.\n\n"
+          "[^2]: However, the logit model is widely used in many disciplines and leads to "
+          "very convenient generalizations.\n")
+    assert markup_problems(md)
+
+
+def test_real_endnotes_pass():
+    from bettermarkitdown.verify import markup_problems
+    md = ("[^22]: Regina T. Riphahn, Achim Wambach, and Andreas Million, \"Incentive Effects "
+          "in the Demand for Health Care\", Journal of Applied Econometrics, 2003.\n"
+          "[^23]: http://www.tylervigen.com/\n"
+          "[^24]: How to cope with missing data is considered in Chapter 10.\n")
+    assert markup_problems(md) == []
+
+
+@pytest.mark.parametrize("bad", [
+    "beyond the scope of this book.$^{24}$",
+    "Angrist and Pischke$^{12}$ report",
+    "[^8]Jeffery M. Wooldridge (2010) Econometric Analysis",
+    "[<u>20</u>]Everaert, G. and L. Ponzi (2014)",
+    "| *SSE* | \\multicolumn{2}{c|}{213774.0} | 125880.0 |",
+    "If we raise the price of Pepsi to $1.10, we estimate that the probability falls",
+    "the average price of Pepsi was $1.23, 7-Up $1.12, and Coke $1.21.",
+])
+def test_markup_problems_are_caught(bad):
+    from bettermarkitdown.verify import markup_problems
+    assert markup_problems(bad)
+
+
+@pytest.mark.parametrize("fine", [
+    "an area of 30 m$^2$ per worker",
+    "| $\\beta_2$ | $1 - p$ |",
+    "when $0 \\le p(\\mathbf{x}_i) \\le 1$ holds",
+    "the estimate is $0.4848$ and the price is \\$1.10",
+    "$$\\$1{,}900 = x$$",
+])
+def test_ordinary_math_and_escaped_currency_pass(fine):
+    from bettermarkitdown.verify import markup_problems
+    assert markup_problems(fine) == []
+
+
+def test_report_names_the_pages_without_a_text_layer():
+    from bettermarkitdown.verify import format_report
+    report = format_report([check_page("Figure 3", MD, 433)])
+    assert "Pages without a text layer: 433." in report
+
+
 def test_cli_verify_exit_codes(tmp_path: Path):
     pymupdf = pytest.importorskip("pymupdf")
     from bettermarkitdown.cli import main

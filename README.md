@@ -87,7 +87,7 @@ Charts become data you can reason about, not just alt text:
 dependencies, including the local OCR fallback:
 
 ```bash
-pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.2.0"
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.3.0"
 bettermarkitdown --version
 ```
 
@@ -536,8 +536,28 @@ A 206-page textbook (4,600 formulas) checks in a few seconds. The most common re
 failure is not LaTeX at all: a dollar amount like `$100 ... $5.97` written without a
 backslash is read as one long formula. Write currency as `\$100`.
 
+**Markup the word count cannot see.** Every page, scanned or not, is also checked for:
+
+| Problem | Example | Why it matters |
+|---|---|---|
+| Invented footnote text | `[^7]: [footnote text not present on this page]`, `[^8]: 8` | In a book with chapter endnotes, the model used to make up a note on every page with a marker |
+| A note repeating the body | `[^2]:` + a sentence copied from the page | Same cause, other symptom |
+| Marker written as math | `book.$^{24}$`, `Pischke$^{12}$` | It renders as a superscript, not a footnote |
+| Note label fused to its text | `[^8]Jeffery M. Wooldridge…`, `[<u>20</u>]Everaert…` | Not a footnote definition in any renderer |
+| Unescaped money | `price of $1.10, we estimate…` | Pairs with the next `$` and turns the sentence into a formula |
+| LaTeX table commands | `\multicolumn{2}{c}{…}` in a pipe table | Markdown tables cannot render them |
+
+On a 672-page econometrics textbook this check found 60 such faults in pages that had
+already been reviewed by eye, 41 of them unescaped dollar amounts.
+
+**Read every word list, even on pages you trust.** The model sometimes "improves" the
+text: it corrected two of the book's own typos ("multpliers", "test for nonstationary") and
+dropped "*FBABY*, along with" from an exercise, which changed the model the exercise asks
+for. Each showed up only as one or two words in the `missing` / `not in the PDF` lists. Put
+the book's typos back as printed with a `*[sic: …]*` note.
+
 It does not check whether equations and figure descriptions are *correct*, or the words of
-scanned pages (no text layer). The report says how many pages it could not check, and those
+scanned pages (no text layer). The report lists the pages it could not check, and those
 still need a look at the page image.
 
 **Fix the work dir, not the output.** The output is rebuilt from `<work-dir>/pages/`, so
@@ -564,6 +584,28 @@ Two more tricks follow from "the output is every file in `pages/`, in name order
   LLM) sees it before anything else, and it survives every rebuild.
 - **Dropping pages.** To leave out covers or blank pages, move their files out of `pages/`
   (for example to `<work-dir>/excluded/`). `--pages` does not do this, by design.
+- **Marking pages you have not converted yet.** When you convert a book a few chapters at a
+  time, say where the gaps are, so a reader (or an LLM) does not take a missing chapter for
+  the end of the book. Append a note to the page *before* the gap, as a blockquote between
+  marker comments so a script can find and rewrite it as the gap shrinks:
+
+  ```markdown
+  <!-- gap-note -->
+  > ### ⏸ Not in this file yet: PDF pages 574–838
+  > Chapters 8–11 have not been converted. Read them in the PDF.
+  <!-- /gap-note -->
+  ```
+
+  `--verify` ignores blockquotes, so the note is never flagged. **Do not** create a
+  placeholder `pages/0574.md` instead: any existing page file counts as converted, so that
+  page would never be sent to the model.
+
+**Books with chapter endnotes.** Most textbooks print a chapter's notes at its end, not at
+the foot of the page. The page prompt now tells the model to write only the marker `[^n]` on
+such pages, and `[^n]: text` on the page that lists the notes. A note that runs onto the next
+page should be joined into one definition by hand. The labels restart in every chapter, so
+the same `[^1]` appears several times in a whole-book file. Most renderers then attach every
+`[^1]` to the first definition, so read a note next to its own chapter's list.
 
 ---
 

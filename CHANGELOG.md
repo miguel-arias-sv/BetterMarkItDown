@@ -11,6 +11,40 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
+## [1.3.0] - 2026-10-19
+
+Lessons from converting 672 pages of an econometrics textbook with chapter endnotes.
+
+### What's New
+
+- **`--verify` checks the Markdown itself, not just its words.** Every page, scanned or
+  not, is checked for invented footnotes (`[^7]: [footnote text not present on this
+  page]`, `[^8]: 8`, or a note that repeats a sentence of the page), footnote markers
+  written as math (`book.$^{24}$`), note labels fused to their text (`[^8]Jeffery…`),
+  unescaped dollar amounts that renderers read as formulas, and LaTeX table commands such
+  as `\multicolumn` inside Markdown tables. On the textbook it found 60 such faults in
+  pages that had already been reviewed by eye.
+- **A clearer page prompt for footnotes, money, tables and typos.** The old rule, "preserve
+  footnotes as [^n] with their text at the end", made the model invent a note on every page
+  of a book whose notes are printed at the end of the chapter. The prompt now asks for the
+  marker alone there, `[^n]: text` only where the note is printed, `\$` for money, plain
+  pipe tables, and the book's typos left as printed. Pages already in a work dir are not
+  converted again; only new pages use the new prompt.
+- **The report names the pages without a text layer**, instead of only counting them.
+- **README: reviewing books with endnotes, and marking chapters not converted yet.**
+  Includes a warning learned the hard way: a placeholder `pages/NNNN.md` for a missing page
+  stops that page from ever being converted.
+
+### Fixed
+
+- **An escaped `\$` was read as a math delimiter by `--verify`.** `\$1900 … when $P$` paired
+  the dollar sign with the formula, hid the words between them from the word check, and
+  produced false differences.
+- **Footnote numbers no longer flag pages.** The text layer runs a superscript marker into
+  what precedes it (`0.9926` + marker 22 becomes `0.992622`), and `[^22]` labels counted as
+  numbers in the Markdown. Both are now matched up, which removed most false flags on pages
+  with notes.
+
 ## [1.2.0] - 2026-10-10
 
 ### What's New

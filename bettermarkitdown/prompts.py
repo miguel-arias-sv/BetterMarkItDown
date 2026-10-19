@@ -25,9 +25,19 @@ PAGE_PROMPT = """This is one full page of a scanned book. Transcribe it into cle
 
 Rules:
 - Transcribe ALL text verbatim, in reading order, preserving the original
-  language. Do not summarise, translate, or modernise spelling.
+  language. Do not summarise, translate, or modernise spelling. Keep typos and
+  misspellings exactly as printed; never correct them.
 - Use # / ## for headings, - for bullets, > for pull quotes, and Markdown tables
-  for tabular data. Preserve footnotes as [^n] with their text at the end.
+  for tabular data. Tables are plain Markdown pipe tables: no LaTeX table commands
+  such as \\multicolumn; leave the cells of a merged cell empty.
+- Footnotes: write every superscript note marker in the text as [^n], never as
+  $^n$. Write a note's text, as `[^n]: text`, ONLY if that text is printed on this
+  page. Many books print notes at the end of the chapter: then write the marker
+  alone and no definition at all. Never write a placeholder such as "footnote text
+  not present on this page". On a page that lists notes (a "Notes" section), write
+  each one as `[^n]: text`, with the number from the page.
+- A dollar sign that means money is written \\$ (\\$1,900), so it is not read as
+  the start of a formula.
 - Render mathematics as LaTeX: $inline$ for expressions in a sentence, $$display$$
   for set-off equations, and \\tag{n} for the equation numbers printed in the margin.
 - Handwriting, gothic/blackletter type, marginalia, stamps and ornate initials
