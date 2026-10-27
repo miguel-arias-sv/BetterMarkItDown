@@ -11,6 +11,57 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
+## [1.4.0] - 2026-10-26
+
+Lessons from converting chapters of a publisher's finance textbook that sets every
+equation as a picture.
+
+### What's New
+
+- **Pages whose equations are pictures are transcribed whole.** Publishers often set each
+  equation as a small embedded image. The text layer has nothing in its place, so the text
+  path dropped every equation without a trace: the prose read cleanly with `(12.1)` alone
+  on a line. `--verify` could not see it either, since it checks against that same text
+  layer. A page with a text layer and images too small to be figures now goes to the
+  vision model like a scanned page, and the run summary lists those pages. With
+  `--no-vision`, they are listed as a warning. `--ignore-small-images` keeps the old
+  behaviour for PDFs whose small images are logos.
+- **`--toc` prints the PDF's outline with a page range for every chapter and section**, for
+  choosing `--pages` without hunting through the book. A range includes the page where the
+  next section starts when that section begins below text, and stops before it when the next
+  heading opens the page.
+- **`--title` sets the output's heading.** It was always the PDF's file name, which for some
+  downloads is 200 characters long. Rewriting the heading by hand did not survive a rebuild.
+- **New `--verify` checks.** These were all found in reviewed files:
+  - LaTeX printed as source outside math: `$\mu$ \tag{6.18}`, an orphaned `\tag{6.55}` at
+    the top of a page, or a bare `\begin{align*}`.
+  - Link targets with a space (`[Exercise 9.29](Exercise 9.29)`), which show as plain
+    text.
+  - More than one `\tag` in one display equation, which KaTeX and MathJax refuse to render.
+- **Tables that are pictures are listed, not flagged.** On a page holding an image,
+  unmatched words and numbers in Markdown table rows are reported as `from an image,
+  unchecked`, and the report names those pages for a check against the image.
+- **The page prompt asks for one `\tag` per display equation**, and for an equation number
+  whose equation is on another page to be written as plain `(n)`.
+
+### Fixed
+
+- **Numbered `aligned` blocks did not render.** The model put a `\tag` on every line. New
+  conversions write those numbers as `\qquad (n)`, which renders.
+- **`--verify` reported variables written as math as missing.** Math was joined into one
+  string before ligature pairs were dropped, so `$LLF$ $L_u$` became `llflu`, lost its `fl`,
+  and the PDF's `LLF` was missing six times on a correct page.
+- **A letter the text layer drops outright no longer flags the page**: `naïve` stored as
+  `nave`. Only vowels and y, n and c (as in ÿ, ñ and ç) are forgiven.
+- **Figure and page-image links broke when the output name had a space.** CommonMark ends a
+  link target at the first space, so `![…](My Notes_assets/…)` did not display. Spaces are
+  now written as `%20`.
+- **Page files and the output are written with `\n` line endings on Windows too.** With
+  `\r\n`, a review script that matched `"\n\n"` changed nothing and reported no error.
+- **Windows console output.** Piped or redirected, stdout is cp1252 there. A PDF name with
+  a curly apostrophe printed as mojibake, and a `--verify` report with a Greek letter
+  crashed. Output is now UTF-8.
+
 ## [1.3.0] - 2026-10-19
 
 Lessons from converting 672 pages of an econometrics textbook with chapter endnotes.

@@ -40,6 +40,10 @@ Rules:
   the start of a formula.
 - Render mathematics as LaTeX: $inline$ for expressions in a sentence, $$display$$
   for set-off equations, and \\tag{n} for the equation numbers printed in the margin.
+  One \\tag per $$...$$ block: when several lines each carry their own number, write
+  each line as its own $$...$$ block. An equation number printed with no equation
+  beside it (the equation is on another page) is written as plain text, (6.55),
+  never as a \\tag outside $$...$$.
 - Handwriting, gothic/blackletter type, marginalia, stamps and ornate initials
   must be transcribed too. Mark unreadable spans as [illegible: best guess].
 - For every figure, chart or illustration on the page, insert a block at its
