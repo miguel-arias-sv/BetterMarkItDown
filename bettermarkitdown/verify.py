@@ -97,6 +97,9 @@ class PageCheck:
     numbers_extra: Counter = field(default_factory=Counter)
     truncated: bool = False          # the model hit its output limit on this page
     markup: list[str] = field(default_factory=list)     # footnote, currency, table faults
+    # Table words with no match in the text layer, on a page holding an image: the
+    # table is most likely that image. Listed, but they do not flag the page.
+    from_image: Counter = field(default_factory=Counter)
 
     @property
     def flagged(self) -> bool:
@@ -117,6 +120,9 @@ def math_problems(md: str) -> list[str]:
                 problems.append("blank line inside a display equation")
             if "*[" in block:
                 problems.append("review note inside a display equation")
+            if len(re.findall(r"\\tag\b", block)) > 1:
+                problems.append("more than one \\tag in a display equation; give each "
+                                "numbered line its own $$...$$ or write (n) after \\qquad")
     for env in set(re.findall(r"\\begin\{(\w+\*?)\}", md)):
         if md.count(rf"\begin{{{env}}}") != md.count(rf"\end{{{env}}}"):
             problems.append(f"unmatched \\begin{{{env}}}")
@@ -154,6 +160,13 @@ _MATH_MARKER = re.compile(r"(?:(?<=[.,;:?!)\"”’*])\$\^\{?\d{1,3}\}?\$"
                           r"|(?<=[A-Za-z])\$\^\{?\d{2,3}\}?\$)")
 _FUSED_NOTE = re.compile(r"^(?:\[\^\d+\](?!:)|\[<u>\d+</u>\])\S", re.M)
 _LATEX_TABLE = re.compile(r"\\(?:multicolumn|multirow|hline|cline)\b")
+# Outside $...$ these are printed as raw LaTeX source.
+_LATEX_OUTSIDE_MATH = re.compile(
+    r"\\begin\{(?:align|aligned|equation|eqnarray|gather|gathered|multline|split|array|"
+    r"cases|[pbvBV]?matrix)\*?\}|\\tag\*?\{[^}]*\}")
+# A link or image whose target holds a space: CommonMark ends the target there, so
+# '[Exercise 9.29](Exercise 9.29)' prints as plain text. 'url "title"' is allowed.
+_SPACED_LINK = re.compile(r"!?\[[^\]\n]*\]\((?!<)([^)\n]*\s[^)\n]*)\)")
 # `$` + an amount that is not a closed `$12$` formula.
 _CURRENCY = re.compile(r"(?:(?<=[\s(“—–])|^)\$(?=\d[\d,]*(?:\.\d+)?(?:s\b|[\s,.;:)\-–]|$))"
                        r"(?![\d,.]*\$)", re.M)
@@ -204,6 +217,13 @@ def markup_problems(md: str) -> list[str]:
     if _LATEX_TABLE.search(prose):
         problems.append("LaTeX table command (\\multicolumn, \\hline, ...) in a Markdown "
                         "table; it will not render")
+    for m in _LATEX_OUTSIDE_MATH.finditer(prose):
+        problems.append(f"LaTeX outside $$...$$ {m.group()!r}; it prints as source. Wrap "
+                        "the equation in $$, or write an orphaned equation number as (n)")
+    for m in _SPACED_LINK.finditer(text):
+        if not re.fullmatch(r"\S+\s+([\"']).*\1|\S+\s+\(.*\)", m.group(1).strip()):
+            problems.append(f"link target with a space {m.group()[:60]!r}; it shows as "
+                            "plain text. Write the space as %20, or drop the link")
     return problems
 
 
@@ -271,11 +291,41 @@ def _forgive_math_fusion(missing: Counter, extra: Counter, md_words: Counter) ->
                     del extra[stem]
 
 
+_ACCENTABLE = set("aeiouync")
+
+
+def _forgive_dropped_accents(missing: Counter, extra: Counter) -> None:
+    """Some text layers drop an accented letter outright: 'naïve' is stored as
+    'nave', while the Markdown has 'naive'. Forgive a missing word that is an extra
+    word less one vowel (or y, n, c: ÿ, ñ, ç), never any other letter, so 'test'
+    against 'tests' is still flagged."""
+    for w in list(missing):
+        for x in list(extra):
+            if len(x) == len(w) + 1 and any(
+                    x[i] in _ACCENTABLE and x[:i] + x[i + 1:] == w for i in range(len(x))):
+                n = min(missing[w], extra[x])
+                missing[w] -= n
+                extra[x] -= n
+                break
+    for c in (missing, extra):
+        for key in [k for k, v in c.items() if v <= 0]:
+            del c[key]
+
+
+def _table_text(prose: str) -> str:
+    return " ".join(line for line in prose.splitlines() if line.lstrip().startswith("|"))
+
+
 def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
-               max_number_diff: int = 0, min_words: int = 20) -> PageCheck:
+               max_number_diff: int = 0, min_words: int = 20,
+               image_on_page: bool = False) -> PageCheck:
     """Flag the page when more than `max_diff` words differ in total, or more than
     `max_number_diff` numbers. The word default of 1 still catches a single swapped
-    word (one missing + one extra); for numbers any difference counts."""
+    word (one missing + one extra); for numbers any difference counts.
+
+    `image_on_page`: the page holds an image large enough to be a figure. A table
+    transcribed from it has no text layer, so its unmatched words are listed under
+    `from_image` instead of flagging the page."""
     # OCR keeps the words and wrecks the math, so a clean word match proves nothing
     # on these pages: always send them back for a look.
     ocr = _OCR_SOURCE in md
@@ -291,11 +341,18 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
         return PageCheck(page, len(raw), status="no-text-layer", ocr=ocr, math=math,
                          truncated=truncated, markup=markup)
     pdf_words = Counter(_pdf_words(pdf_text, md_words))
-    other_letters = _norm(re.sub(r"[^A-Za-z]", "", other))
+    # Normalise each token before joining: '$LLF$ $L_u$' joined first reads 'llflu',
+    # and dropping the ligature pair 'fl' from that leaves no 'llf' to find.
+    other_letters = "".join(_norm(t) for t in re.findall(r"[A-Za-z]+", other))
     missing = Counter({w: n for w, n in (pdf_words - md_words).items()
                        if w not in other_letters})
     extra = md_words - pdf_words
     _forgive_math_fusion(missing, extra, md_words)
+    _forgive_dropped_accents(missing, extra)
+    from_image = Counter()
+    if image_on_page:
+        from_image = extra & Counter(_words(_table_text(prose)))
+        extra -= from_image
 
     # Numbers in math, figure descriptions and comments (the page prompt's
     # `<!-- page number: N -->`) may account for PDF numbers, but are never required.
@@ -311,12 +368,24 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     _reconcile_spaced_thousands(prose, numbers_extra, numbers_missing)
     numbers_missing = Counter({n: k for n, k in numbers_missing.items() if n not in in_math})
     _forgive_fused_markers(md, numbers_missing, numbers_extra)
+    if image_on_page:
+        image_numbers = numbers_extra & Counter(_numbers(_table_text(prose)))
+        numbers_extra -= image_numbers
+        from_image += image_numbers
 
     flagged = (sum(missing.values()) + sum(extra.values()) > max_diff
                or sum(numbers_missing.values()) + sum(numbers_extra.values())
                > max_number_diff)
     return PageCheck(page, len(raw), missing, extra, "flagged" if flagged else "ok", ocr,
-                     math, numbers_missing, numbers_extra, truncated, markup)
+                     math, numbers_missing, numbers_extra, truncated, markup, from_image)
+
+
+def _has_figure_image(page, min_pt: float = 60.0) -> bool:
+    for info in page.get_image_info():
+        x0, y0, x1, y1 = info["bbox"]
+        if x1 - x0 >= min_pt and y1 - y0 >= min_pt:
+            return True
+    return False
 
 
 def verify(pdf: Path, work_dir: Path, pages: list[int] | None = None,
@@ -333,9 +402,10 @@ def verify(pdf: Path, work_dir: Path, pages: list[int] | None = None,
             if not path.is_file():
                 results.append(PageCheck(idx + 1, 0, status="no-page-file"))
                 continue
-            text = doc[idx].get_text("text", flags=pymupdf.TEXT_DEHYPHENATE)
+            page = doc[idx]
+            text = page.get_text("text", flags=pymupdf.TEXT_DEHYPHENATE)
             results.append(check_page(text, path.read_text(encoding="utf-8"), idx + 1,
-                                      **thresholds))
+                                      image_on_page=_has_figure_image(page), **thresholds))
     finally:
         doc.close()
     return results
@@ -375,6 +445,8 @@ def format_report(results: list[PageCheck], limit: int = 20,
             if r.numbers_missing or r.numbers_extra:
                 lines.append(f"    numbers missing:           {show(r.numbers_missing)}")
                 lines.append(f"    numbers not in the PDF:    {show(r.numbers_extra)}")
+            if r.from_image:
+                lines.append(f"    from an image, unchecked:  {show(r.from_image)}")
         if r.truncated:
             lines.append(f"page {r.page}: cut off -- the model reached its output limit and "
                          "the rest of the page is missing. Finish it from the PDF.")
@@ -398,6 +470,11 @@ def format_report(results: list[PageCheck], limit: int = 20,
                  f"{counts['no-page-file']} not converted yet.")
     if no_layer:
         lines.append("Pages without a text layer: " + ", ".join(map(str, no_layer)) + ".")
+    image_tables = [r.page for r in results if r.from_image]
+    if image_tables:
+        lines.append("Tables transcribed from images, whose words the text layer cannot "
+                     "check (compare them with the page image): pages "
+                     + ", ".join(map(str, image_tables)) + ".")
     if render_note:
         lines.append(render_note)
     lines.append("Whether equations and figure descriptions are *correct* is not checked "

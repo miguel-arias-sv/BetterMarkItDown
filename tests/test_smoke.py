@@ -257,3 +257,131 @@ def test_cut_off_recognises_the_finish_reasons_servers_use():
 
     assert cut_off("length") and cut_off("MAX_TOKENS")
     assert not cut_off("stop") and not cut_off("") and not cut_off("content_filter")
+
+
+# --- v1.4.0 -----------------------------------------------------------------
+
+def _equation_image_pdf(path: Path) -> Path:
+    """One page of ordinary text plus a 200 x 10 pt picture: how publishers set a
+    display equation. The text layer has nothing where the equation is."""
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 90), "The linear probability model is given by", fontsize=11)
+    for i in range(4):
+        page.insert_text((72, 140 + 14 * i), "where the explanatory variables are "
+                         "measured in millions of dollars and so on.", fontsize=11)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 80, 4), False)
+    pix.clear_with(40)
+    page.insert_image(pymupdf.Rect(150, 100, 350, 110), pixmap=pix)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_equation_sized_images_are_counted_but_figures_and_specks_are_not(tmp_path: Path):
+    pymupdf = pytest.importorskip("pymupdf")
+    from bettermarkitdown.core import small_images
+
+    with pymupdf.open(_equation_image_pdf(tmp_path / "eq.pdf")) as doc:
+        assert small_images(doc[0], 60) == 1
+        assert small_images(doc[0], 5) == 0          # 10 pt tall is a figure at min 5 pt
+
+
+def test_text_path_reports_pages_whose_equations_it_dropped(tmp_path: Path):
+    pytest.importorskip("markitdown")
+    result = convert(Options(pdf=_equation_image_pdf(tmp_path / "eq.pdf"),
+                             output=tmp_path / "out.md", work_dir=tmp_path / "work",
+                             no_vision=True))
+    assert result.pages_small_images == [1]
+
+
+def test_pages_with_equation_images_are_transcribed_whole(tmp_path: Path, monkeypatch):
+    pytest.importorskip("markitdown")
+    pytest.importorskip("openai")
+    from bettermarkitdown import core
+
+    sent = []
+
+    def fake_describe(client, model, png, prompt, **kwargs):
+        sent.append(prompt)
+        return ("$$\\begin{aligned} a &= b \\tag{1} \\\\ c &= d \\tag{2} \\end{aligned}$$"
+                "\n\n<!-- page number: 1 -->")
+
+    monkeypatch.setattr(core, "describe_image", fake_describe)
+    common = dict(pdf=_equation_image_pdf(tmp_path / "eq.pdf"), output=tmp_path / "out.md",
+                  base_url="http://localhost:1/v1", save_images=False)
+    convert(Options(**common, work_dir=tmp_path / "w1"))
+    page = (tmp_path / "w1" / "pages" / "0001.md").read_text(encoding="utf-8")
+    assert sent == [core.PAGE_PROMPT]
+    assert "full-page vision transcription" in page
+    assert "\\tag" not in page and "\\qquad (1)" in page and "\\qquad (2)" in page
+
+    sent.clear()
+    convert(Options(**common, work_dir=tmp_path / "w2", ignore_small_images=True))
+    assert core.PAGE_PROMPT not in sent
+
+
+def test_one_tag_per_display_leaves_single_tags_alone():
+    from bettermarkitdown.core import one_tag_per_display
+    single = "$$y_t = u_t \\tag{6.87}$$ and $x$"
+    assert one_tag_per_display(single) == single
+
+
+def test_title_option_and_unix_line_endings(sample_pdf: Path, tmp_path: Path):
+    pytest.importorskip("markitdown")
+    output = tmp_path / "out.md"
+    convert(Options(pdf=sample_pdf, output=output, work_dir=tmp_path / "work",
+                    no_vision=True, title="Chapter 12: Limited Dependent Variables"))
+    assert output.read_text(encoding="utf-8").startswith(
+        "# Chapter 12: Limited Dependent Variables\n")
+    for f in [output, *(tmp_path / "work" / "pages").glob("*.md")]:
+        assert b"\r\n" not in f.read_bytes(), f.name
+
+
+def test_figure_links_survive_spaces_in_the_output_name():
+    from bettermarkitdown.core import md_link
+    assert md_link("My Notes_assets/page_0001.png") == "My%20Notes_assets/page_0001.png"
+
+
+def _outline_pdf(path: Path) -> Path:
+    """Ch 1 on pp. 1-2; 1.2 starts mid-page 2 below a paragraph; Ch 2 opens p. 3."""
+    pymupdf = pytest.importorskip("pymupdf")
+    doc = pymupdf.open()
+    for _ in range(3):
+        doc.new_page()
+    doc[1].insert_text((72, 100), "The end of section 1.1 runs onto this page, and it "
+                                  "is a full line of body text.", fontsize=10)
+    doc[1].insert_text((72, 400), "1.2 The Next Section", fontsize=12)
+    doc[2].insert_text((72, 80), "Chapter 2", fontsize=16)
+
+    def dest(page, y):
+        return {"kind": pymupdf.LINK_GOTO, "page": page - 1, "to": pymupdf.Point(72, y)}
+
+    doc.set_toc([[1, "Chapter 1", 1, dest(1, 72)], [2, "1.1 First", 1, dest(1, 300)],
+                 [2, "1.2 The Next Section", 2, dest(2, 390)],
+                 [1, "Chapter 2", 3, dest(3, 70)]])
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_outline_ranges_share_a_page_only_when_the_next_heading_is_below_text(
+        tmp_path: Path):
+    pymupdf = pytest.importorskip("pymupdf")
+    from bettermarkitdown.core import outline_ranges
+
+    with pymupdf.open(_outline_pdf(tmp_path / "toc.pdf")) as doc:
+        ranges = {title: (first, last) for _, title, first, last in outline_ranges(doc)}
+    assert ranges["1.1 First"] == (1, 2)             # 1.2 starts below text on p. 2
+    assert ranges["1.2 The Next Section"] == (2, 2)  # Chapter 2 opens p. 3
+    assert ranges["Chapter 1"] == (1, 2)
+    assert ranges["Chapter 2"] == (3, 3)
+
+
+def test_cli_toc_prints_the_outline(tmp_path: Path, capsys):
+    from bettermarkitdown.cli import main
+    assert main([str(_outline_pdf(tmp_path / "toc.pdf")), "--toc"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.split() == ["1-2", "1.1", "First"] for line in lines)
+    assert any(line.split() == ["3", "Chapter", "2"] for line in lines)

@@ -107,6 +107,7 @@ class Options:
     output: Path
     work_dir: Path | None = None
     pages: str | None = None
+    title: str | None = None          # the output's # heading; default: the PDF's file name
 
     model: str = DEFAULT_MODEL
     reasoning: str = "none"
@@ -118,6 +119,9 @@ class Options:
     min_chars: int = 120
     min_figure_pt: float = 60.0
     figure_pad: float = 22.0
+    # Pages with a text layer and images too small to be figures (usually equations
+    # set as pictures) go to full-page vision. True keeps them on the free text path.
+    ignore_small_images: bool = False
 
     workers: int = 3
     rpm: int = 60
@@ -167,6 +171,7 @@ class Result:
     pages_ocr: list[int] = field(default_factory=list)
     failed: list[int] = field(default_factory=list)
     truncated: list[int] = field(default_factory=list)   # cut off at the output-token cap
+    pages_small_images: list[int] = field(default_factory=list)  # images below figure size
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0

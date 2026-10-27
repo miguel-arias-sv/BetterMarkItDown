@@ -7,6 +7,7 @@ instead (see wizard.py).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
@@ -31,6 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("pdf", nargs="?", help="input PDF (omit for the interactive wizard)")
     parser.add_argument("-o", "--output", help="output .md (default: alongside the PDF)")
     parser.add_argument("--pages", help="1-based selection: '5', '10-40', '1,5,9-12'")
+    parser.add_argument("--toc", action="store_true",
+                        help="print the PDF's outline (chapters, sections) with the page "
+                             "range of each entry, for choosing --pages, then exit")
+    parser.add_argument("--title", help="the output's # heading (default: the PDF's file "
+                                        "name)")
     parser.add_argument("--work-dir", help="where to keep per-page Markdown and the response "
                                            "cache; point it at a local disk when the output "
                                            "lives in a synced folder")
@@ -55,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
                         help="pages with fewer non-space chars count as scanned (default 120)")
     parser.add_argument("--min-figure-pt", type=float, default=60.0,
                         help="ignore figures smaller than this many points (default 60)")
+    parser.add_argument("--ignore-small-images", action="store_true",
+                        help="keep pages with a text layer on the free text path even when "
+                             "they hold images too small to be figures. By default those "
+                             "pages are transcribed whole, because such images are usually "
+                             "equations, which the text path drops")
     parser.add_argument("--figure-pad", type=float, default=22.0,
                         help="margin around figure crops so captions come along (default 22)")
 
@@ -86,8 +97,39 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _page_list(pages: list[int], limit: int = 12) -> str:
+    shown = ", ".join(map(str, pages[:limit]))
+    return shown + (f" and {len(pages) - limit} more" if len(pages) > limit else "")
+
+
+def print_toc(pdf: Path) -> int:
+    import pymupdf
+
+    from .core import outline_ranges
+
+    with pymupdf.open(pdf) as doc:
+        entries = outline_ranges(doc)
+    if not entries:
+        print("This PDF has no outline (bookmarks). Find the pages in its table of contents.")
+        return 0
+    print("Pages are the PDF's own, 1-based, as --pages takes them. A range ends on the page "
+          "where the next\nentry begins when that entry starts below text, since both "
+          "sections are on it.\n")
+    width = len(str(max(last for *_, last in entries)))
+    for level, title, first, last in entries:
+        span = f"{first}-{last}" if last > first else str(first)
+        print(f"{span:>{2 * width + 1}}  {'  ' * (level - 1)}{title}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    # Piped or redirected on Windows, stdout is cp1252: a PDF named with a curly
+    # quote prints as mojibake, and a report holding a Greek letter crashes.
+    for stream in (sys.stdout, sys.stderr):
+        if (getattr(stream, "encoding", "") or "").lower().replace("-", "") != "utf8":
+            with contextlib.suppress(AttributeError, ValueError):
+                stream.reconfigure(encoding="utf-8")
     if not argv:
         from .wizard import main as wizard_main
         return wizard_main()
@@ -112,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
     if not pdf.is_file():
         print(f"Not found: {pdf}", file=sys.stderr)
         return 1
+
+    if args.toc:
+        return print_toc(pdf)
 
     if args.verify:
         import pymupdf
@@ -144,11 +189,13 @@ def main(argv: list[str] | None = None) -> int:
         output=(Path(args.output).expanduser().resolve() if args.output
                 else pdf.with_suffix(".md")),
         work_dir=Path(args.work_dir).expanduser().resolve() if args.work_dir else None,
-        pages=args.pages, model=get_model(args.model), reasoning=args.reasoning,
+        pages=args.pages, title=args.title, model=get_model(args.model),
+        reasoning=args.reasoning,
         api_key=api_key,
         base_url=base_url,
         dpi=args.dpi, max_edge=args.max_edge, min_chars=args.min_chars,
         min_figure_pt=args.min_figure_pt, figure_pad=args.figure_pad,
+        ignore_small_images=args.ignore_small_images,
         workers=args.workers, rpm=args.rpm, budget_usd=args.budget_usd,
         price_in=args.price_in, price_out=args.price_out, estimate=args.estimate,
         no_vision=args.no_vision, save_images=args.save_images,
@@ -192,6 +239,18 @@ def main(argv: list[str] | None = None) -> int:
               f"{', '.join(str(n) for n in result.pages_ocr)}")
         print("   The model refused these (usually its recitation filter). Layout is "
               "flattened and notation is unreliable there.")
+
+    small = result.pages_small_images
+    if small and (opts.no_vision or opts.ignore_small_images):
+        print(f"\n!! {len(small)} page(s) hold images too small to be figures, usually "
+              f"equations set as pictures, and the text path left them out: "
+              f"{_page_list(small)}")
+        print("   Rerun those pages with vision (without --no-vision / "
+              "--ignore-small-images) to transcribe them whole.")
+    elif small:
+        print(f"\n{len(small)} page(s) had a text layer plus images too small to be figures, "
+              f"usually equations set as pictures, so they were transcribed whole: "
+              f"{_page_list(small)}")
 
     if result.truncated:
         print(f"\n!! {len(result.truncated)} page(s) were cut off at the model's output limit "

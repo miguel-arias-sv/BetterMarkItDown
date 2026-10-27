@@ -1,6 +1,6 @@
 """BetterMarkItDown - MarkItDown plus a vision layer for PDFs whose content is pictures."""
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 from .config import Options, Result
 from .core import convert

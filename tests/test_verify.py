@@ -322,3 +322,87 @@ def test_cli_verify_exit_codes(tmp_path: Path):
     (pages / "0001.md").write_text(MD.replace("income effect", "wealth effect"),
                                    encoding="utf-8")
     assert main(args) == 3
+
+
+# --- v1.4.0: cases from a publisher's textbook (Brooks, Introductory Econometrics
+# for Finance) whose equations are images and whose tables are often images too.
+
+LR_PDF = (
+    "the second derivatives comprise the information matrix, measuring the\n"
+    "peakedness of the LLF, and how much higher the LLF value is at the optimum.\n"
+    "The LM test involves estimating only a restricted regression, since the slope\n"
+    "of the LLF at the maximum will be zero by definition. A naïve forecast.\n"
+)
+LR_MD = (
+    "the second derivatives comprise the information matrix, measuring the peakedness "
+    "of the $LLF$, and how much higher the $LLF$ value is at the optimum. The $LM$ test "
+    "involves estimating only a restricted regression, since the slope of the $LLF$ at "
+    "the maximum will be zero by definition. A naive forecast, $L_u$ and $L_r$.\n"
+)
+
+
+def test_variables_written_as_math_are_not_lost_to_ligature_stripping():
+    """'$LLF$ $L_u$' was joined into 'llflu' before 'fl' was dropped as a ligature,
+    so the PDF's 'LLF' was reported missing six times on a correct page."""
+    result = check_page(LR_PDF.replace("naïve", "naive"), LR_MD, 531)
+    assert result.status == "ok", (result.missing, result.extra)
+
+
+def test_an_accented_letter_dropped_by_the_text_layer_is_forgiven():
+    pdf = LR_PDF.replace("naïve", "nave")          # what the text layer really held
+    assert check_page(pdf, LR_MD, 667).status == "ok"
+    plural = check_page(pdf.replace("restricted regression", "restricted test"),
+                        LR_MD.replace("restricted regression", "restricted tests"), 667)
+    assert plural.flagged, "a changed word must still be caught"
+
+
+IMAGE_TABLE_MD = MD + (
+    "\n| Variable | Equity equation | Bonds equation |\n| :--- | :---: | :---: |\n"
+    "| Unlevered Z-score | 0.14 | 0.26 |\n| Venture-backed | 0.70 | 0.86 |\n"
+)
+
+
+def test_a_table_transcribed_from_an_image_is_listed_not_flagged():
+    from bettermarkitdown.verify import format_report
+    plain = check_page(PDF_TEXT, IMAGE_TABLE_MD, 674)
+    assert plain.flagged                     # no image on the page: the words are invented
+    imaged = check_page(PDF_TEXT, IMAGE_TABLE_MD, 674, image_on_page=True)
+    assert imaged.status == "ok", (imaged.extra, imaged.numbers_extra)
+    assert imaged.from_image["venture"] and imaged.from_image["0.86"]
+    assert "Tables transcribed from images" in format_report([imaged])
+
+
+def test_image_page_still_flags_a_dropped_sentence():
+    md = IMAGE_TABLE_MD.replace("supply slopes upward in the wage.", "")
+    assert check_page(PDF_TEXT, md, 674, image_on_page=True).flagged
+
+
+def test_more_than_one_tag_in_a_display_is_broken_math():
+    from bettermarkitdown.verify import math_problems
+    block = ("$$\\begin{aligned}\ny_t &= (1 - \\phi_1 L)^{-1} u_t \\tag{6.85} \\\\\n"
+             "y_t &= (1 + \\phi_1 L) u_t \\tag{6.86}\n\\end{aligned}$$")
+    assert any("\\tag" in p for p in math_problems(block))
+    assert math_problems("$$y_t = u_t \\tag{6.87}$$") == []
+
+
+@pytest.mark.parametrize("bad", [
+    "\\tag{6.55}\n\nit would be stated that the process is stationary",
+    "\\begin{align*}\nx &= 1\n\\end{align*}",
+    "see [Exercise 9.29](Exercise 9.29) for the data",
+    "![Page 12, figure 1](My Notes_assets/page_0012_fig_01.png)",
+])
+def test_latex_outside_math_and_links_with_spaces_are_caught(bad):
+    from bettermarkitdown.verify import markup_problems
+    assert markup_problems(bad)
+
+
+@pytest.mark.parametrize("fine", [
+    "$$y_t = \\phi(L)^{-1} u_t \\tag{6.56}$$",
+    "$$\\begin{aligned} a &= b \\\\ c &= d \\end{aligned} \\tag{6.70}$$",
+    "the number (6.55) is printed on the next page",
+    "![Page 12, figure 1](My%20Notes_assets/page_0012_fig_01.png)",
+    "[Brooks](https://example.org/book \"Introductory Econometrics\")",
+])
+def test_math_and_well_formed_links_pass(fine):
+    from bettermarkitdown.verify import markup_problems
+    assert markup_problems(fine) == []

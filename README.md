@@ -76,6 +76,7 @@ Charts become data you can reason about, not just alt text:
 |---|---|---|---|
 | Scanned macroeconomics textbook | 163 | 464 KB of Markdown — 77,970 words, 2,347 inline LaTeX expressions, 103 display equations, 92 figure descriptions, 35 footnotes | **$0.58** |
 | Three LaTeX lecture-note PDFs (born-digital) | 45 | 102 KB — 594 inline expressions, 135 display equations, 24 figure descriptions | **$0.13** |
+| Publisher's textbook, four chapter selections, [every equation set as a picture](#when-the-equations-are-pictures) | 74 | 156 KB — 228 display equations, 5 tables transcribed from images | **$0.26** |
 | Survey documentation: CCHS 2022 user guides (Statistics Canada) | 72 | 200 KB; every page checked word by word and number by number with `--verify` | **$0.26** |
 | …and its codebooks, [parsed from the text layer](#codebooks-data-dictionaries-and-statistical-tables) | 281 | 255 variables, 59 derived variables, 108 CV tables; every number copied, not read | **$0** |
 
@@ -87,7 +88,7 @@ Charts become data you can reason about, not just alt text:
 dependencies, including the local OCR fallback:
 
 ```bash
-pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.3.0"
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.4.0"
 bettermarkitdown --version
 ```
 
@@ -171,8 +172,12 @@ python -m bettermarkitdown book.pdf --no-vision -o dryrun.md
 # Measure before you commit: convert 5 pages, project the full cost
 python -m bettermarkitdown book.pdf --estimate 5
 
-# A section, with a spending cap
-python -m bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --workers 4
+# Which pages hold which chapter? Prints the outline with page ranges, no API calls
+python -m bettermarkitdown book.pdf --toc
+
+# A section, with a spending cap and a readable heading
+python -m bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --workers 4 \
+    --title "Chapter 3: Simple Regression"
 
 # Against a model on your own machine
 python -m bettermarkitdown book.pdf --base-url http://localhost:11434/v1 --model qwen3-vl:8b
@@ -203,6 +208,8 @@ print(result.pages_converted, result.cost)
    - Small or ornate type coming out wrong → `--dpi 300`
    - Figure descriptions missing axis labels → raise `--figure-pad`
    - Born-digital pages extracting badly → see below
+   - Equation numbers like `(12.1)` with nothing beside them → [the equations are
+     pictures](#when-the-equations-are-pictures)
 4. **Run the whole thing** with `--budget-usd` as a seatbelt.
 5. **If it stops** — cap, quota, Ctrl+C, dropped network — rerun the identical command. It
    resumes and re-pays for nothing.
@@ -234,6 +241,50 @@ Every page now counts as "scanned" and gets a full-page transcription. The same 
 back clean, with correct `$...$` math, `$$...$$` tagged equations and figure descriptions,
 at about $0.003/page. Check a sample either way — if the text path looks right, keep it,
 because it is free.
+
+### When the equations are pictures
+
+The other trap looks clean. Publishers' PDFs often set every equation as a small embedded
+image: a 353 × 10 pt strip for a display equation, 11 × 13 pt for an inline $\hat{P}_i$. The
+text layer holds the prose and nothing where the equations were, so the text path wrote this
+for a finance textbook:
+
+```
+explanatory variables x2i, x3i, …, xki
+
+(12.1)
+
+The actual probabilities cannot be observed, so we would estimate a model
+```
+
+Every word is right and the equation is gone. `--verify` cannot see the loss either: it
+compares against the same text layer, which never had the equation. Before v1.4.0 the
+figure detector skipped these images too, because they are far smaller than any figure.
+
+**Since v1.4.0 this is handled for you.** A page that has a text layer *and* images too
+small to be figures (under `--min-figure-pt` on a side, over 2 pt so rules and bullets
+don't count) is transcribed whole by the vision model, like a scanned page. The run
+summary lists those pages. Through vision, the same page comes back as:
+
+```markdown
+$$P_i = p(y_i = 1) = \beta_1 + \beta_2 x_{2i} + \beta_3 x_{3i} + \dots + \beta_k x_{ki} + u_i, \quad i = 1, \dots, N \tag{12.1}$$
+```
+
+If small images on your pages are logos or icons rather than equations, pass
+`--ignore-small-images` to keep those pages on the free text path. With `--no-vision` the
+pages are listed as a warning instead: their equations are missing from the output.
+
+To check a PDF before converting, count them:
+
+```python
+import pymupdf
+doc = pymupdf.open("book.pdf")
+for page in doc:
+    small = [i for i in page.get_image_info()
+             if 2 <= min(i["bbox"][2] - i["bbox"][0], i["bbox"][3] - i["bbox"][1]) < 60]
+    if small:
+        print(page.number + 1, len(small))
+```
 
 ### Codebooks, data dictionaries and statistical tables
 
@@ -546,6 +597,13 @@ backslash is read as one long formula. Write currency as `\$100`.
 | Note label fused to its text | `[^8]Jeffery M. Wooldridge…`, `[<u>20</u>]Everaert…` | Not a footnote definition in any renderer |
 | Unescaped money | `price of $1.10, we estimate…` | Pairs with the next `$` and turns the sentence into a formula |
 | LaTeX table commands | `\multicolumn{2}{c}{…}` in a pipe table | Markdown tables cannot render them |
+| LaTeX outside math | `$\mathrm{E}(y_t) = \mu$ \tag{6.18}`, a bare `\begin{align*}` | Prints as source code. The model puts an equation number after inline math, or alone at the top of the page after its equation |
+| A link target with a space | `[Exercise 9.29](Exercise 9.29)`, `![fig](My Notes_assets/…)` | CommonMark ends the target at the space, so it shows as plain text |
+
+The math check also catches more than one `\tag` in one display equation, the form the
+model uses for a numbered `aligned` block: KaTeX and MathJax allow one tag per display, so
+the whole block fails. New conversions repair it on the way in, as `\qquad (6.85)` at the
+end of each line.
 
 On a 672-page econometrics textbook this check found 60 such faults in pages that had
 already been reviewed by eye, 41 of them unescaped dollar amounts.
@@ -556,6 +614,17 @@ dropped "*FBABY*, along with" from an exercise, which changed the model the exer
 for. Each showed up only as one or two words in the `missing` / `not in the PDF` lists. Put
 the book's typos back as printed with a `*[sic: …]*` note.
 
+**Tables that are pictures.** A results table is often an image in an otherwise
+born-digital page. The model transcribes it as a Markdown table, and the text layer has none
+of its words. On a page that holds an image, unmatched words and numbers in table rows are
+therefore listed as `from an image, unchecked` instead of flagging the page, and the report
+names those pages at the end. Compare their tables with the page image.
+
+Two more false differences are gone in v1.4.0. Variables written as math (`$LLF$`, `$L_u$`)
+used to be reported missing, because the math was joined into one string before ligature
+pairs were dropped: `llflu` lost its `fl`. And a text layer that silently drops an accented
+letter (`naïve` stored as `nave`) no longer flags the page. Any other changed letter still does.
+
 It does not check whether equations and figure descriptions are *correct*, or the words of
 scanned pages (no text layer). The report lists the pages it could not check, and those
 still need a look at the page image.
@@ -563,7 +632,12 @@ still need a look at the page image.
 **Fix the work dir, not the output.** The output is rebuilt from `<work-dir>/pages/`, so
 edit `<work-dir>/pages/NNNN.md` and then rerun the same command with `--no-vision` added.
 Every page already exists, so nothing is converted and nothing is billed. The output is
-reassembled with your edits.
+reassembled with your edits. A `--verify` run never rewrites the output, so rebuild after it.
+
+Page files are written with `\n` line endings on every platform (since v1.4.0; older work
+dirs on Windows have `\r\n`). A patch script that matches `"\n\n"` against an older page
+finds nothing and changes nothing, without an error. Read pages as bytes, or normalise
+line endings first.
 
 > **Never pass `--fresh` to a work dir you have edited.** It re-converts every page and
 > overwrites your fixes.
@@ -615,6 +689,8 @@ the same `[^1]` appears several times in a whole-book file. Most renderers then 
 |---|---|---|
 | `-o, --output` | next to the PDF | Where the `.md` goes |
 | `--pages` | all | `5`, `10-40`, `1,5,9-12` |
+| `--toc` | — | Print the PDF's outline with each chapter's and section's page range, then exit. A range includes the page where the next section starts when that section begins below text |
+| `--title` | the PDF's file name | The output's `#` heading. Pass it on every rebuild, or the file name comes back |
 | `--work-dir` | next to the output | Resume state and response cache. **Point this at a local disk if your output lives in Google Drive / OneDrive / Dropbox** |
 | `--model` | `gemini-3.6-flash` | Also read from `$BMID_MODEL` |
 | `--base-url` | Gemini | Any OpenAI-compatible endpoint, e.g. `http://localhost:11434/v1`. Also read from `$BMID_BASE_URL` |
@@ -624,6 +700,7 @@ the same `[^1]` appears several times in a whole-book file. Most renderers then 
 | `--max-edge` | 1568 | Downscale page and figure uploads to this long edge before sending |
 | `--min-chars` | 120 | Below this many non-space characters, a page counts as scanned. Set it huge to force vision on every page |
 | `--min-figure-pt` | 60 | Ignore figures smaller than this many points — skips rules, logos and bullet glyphs |
+| `--ignore-small-images` | off | Keep text-layer pages with images smaller than a figure on the free text path. By default they are [transcribed whole](#when-the-equations-are-pictures), because such images are usually equations |
 | `--figure-pad` | 22 | Points of margin around figure crops, so captions come along |
 | `--workers` | 3 | Pages converted in parallel. Use 1 for a local model |
 | `--rpm` | 60 | Request throttle. Lower it if you see 429s, `0` to disable |

@@ -14,6 +14,9 @@ vision layer around it:
                               and sent to the model for a description plus a data
                               table read off the axes
     page has no text layer -> the whole page is rendered and transcribed
+    page has a text layer AND images too small to be figures (publishers often set
+    every equation as a picture) -> also transcribed whole, because the text path
+    would drop those equations without a trace
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import quote
 
 from . import ocr as local_ocr
 from .config import GEMINI_BASE_URL, Options, Result
@@ -338,10 +342,81 @@ def figure_regions(page, min_pt: float):
     return regions
 
 
+def small_images(page, min_pt: float) -> int:
+    """How many embedded images on the page are too small to be figures.
+
+    Publishers' PDFs often set every equation as a picture: a 353 x 10 pt strip for
+    a display equation, 11 x 13 pt for an inline P-hat. The text path skips them
+    (they are below min_pt) and the text layer has nothing in their place, so the
+    page reads cleanly with every equation missing, and --verify cannot see it
+    either. Specks under 2 pt are rules and bullets, not content."""
+    count = 0
+    for info in page.get_image_info():
+        x0, y0, x1, y1 = info["bbox"]
+        w, h = x1 - x0, y1 - y0
+        if min(w, h) >= 2 and min(w, h) < min_pt:
+            count += 1
+    return count
+
+
+def outline_ranges(doc) -> list[tuple[int, str, int, int]]:
+    """The PDF's outline as (level, title, first page, last page), 1-based.
+
+    A section ends where the next entry at its level or above begins. That page is
+    included when the heading sits below body text, since sections usually share
+    it; when the heading opens the page (a new chapter), it is not."""
+    toc = doc.get_toc(simple=False)
+    out = []
+    for i, (level, title, first, *_) in enumerate(toc):
+        last = doc.page_count
+        for later_level, _, start, later_dest in toc[i + 1:]:
+            if later_level <= level:
+                last = start if _text_above(doc, start, later_dest) else start - 1
+                break
+        out.append((level, title.strip(), first, max(first, last)))
+    return out
+
+
+def _text_above(doc, page_no: int, dest) -> bool:
+    """True when body text precedes the heading that `dest` points to."""
+    to = dest.get("to") if isinstance(dest, dict) else None
+    if to is None or not 1 <= page_no <= doc.page_count:
+        return True              # position unknown: keep the page, it may be shared
+    page = doc[page_no - 1]
+    for *_, bottom, text, _no, _kind in page.get_text("blocks"):
+        # A running header or a page number is short; a paragraph is not.
+        if bottom <= to.y - 2 and len(text.strip()) >= 40:
+            return True
+    return False
+
+
+_DISPLAY = re.compile(r"(?<!\\)\$\$(.*?)(?<!\\)\$\$", re.S)
+_TAG = re.compile(r"\\tag\*?\{([^{}]*)\}")
+
+
+def one_tag_per_display(md: str) -> str:
+    r"""KaTeX and MathJax allow one \tag per display equation. The model numbers
+    each line of an `aligned` block with its own \tag, and the whole block then
+    fails to render. Print those numbers as (n) at the end of their lines."""
+    def fix(m: re.Match) -> str:
+        body = m.group(1)
+        if len(_TAG.findall(body)) < 2:
+            return m.group(0)
+        return "$$" + _TAG.sub(lambda t: rf"\qquad ({t.group(1)})", body) + "$$"
+    return _DISPLAY.sub(fix, md)
+
+
+def md_link(path: str) -> str:
+    """A link target that survives spaces: CommonMark ends a bare target at the
+    first space, so 'My Notes_assets/p1.png' would not display."""
+    return quote(path, safe="/")
+
+
 def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                  cache: Cache, limiter: RateLimiter,
-                 meter: Meter) -> tuple[int, str, bool, bool]:
-    """Convert one page. Returns (index, markdown, used_local_ocr, truncated)."""
+                 meter: Meter) -> tuple[int, str, bool, bool, bool]:
+    """Convert one page. Returns (index, markdown, used_local_ocr, truncated,
+    has_small_images)."""
     import pymupdf
 
     doc = pymupdf.open(pdf_path)   # one handle per thread: PyMuPDF is not thread-safe
@@ -352,6 +427,7 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
         # MarkItDown's own output is not: an error message is a long string too.
         native = page.get_text("text").strip()
         scanned = len(re.sub(r"\s", "", native)) < opts.min_chars
+        small = not scanned and small_images(page, opts.min_figure_pt) > 0
 
         text = markitdown_page_text(md, doc, index)
         if text.startswith("*[MarkItDown failed") and native:
@@ -360,7 +436,8 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
         parts = [f"\n\n---\n\n## Page {index + 1}\n"]
         assets = opts.assets_dir()
 
-        if scanned and not opts.no_vision:
+        whole_page = scanned or (small and not opts.ignore_small_images)
+        if whole_page and not opts.no_vision:
             png = shrink(render(page, opts.dpi), opts.max_edge)
             if opts.save_images:
                 assets.mkdir(parents=True, exist_ok=True)
@@ -377,14 +454,15 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                         "nothing for this page, usually its recitation/copyright filter. "
                         "Layout is flattened and any mathematical notation here is "
                         "unreliable - check it against the PDF. -->\n\n" + recovered)
-                    return index, "\n".join(parts), True, False
+                    return index, "\n".join(parts), True, False, small
                 raise PageFailed(f"page {index + 1}: {body.strip() or 'empty response'}")
 
+            body = one_tag_per_display(body)
             parts.append("<!-- source: full-page vision transcription -->\n\n" + body)
             if opts.save_images:
                 parts.append(f"\n\n![Page {index + 1} scan]"
-                             f"({assets.name}/page_{index + 1:04d}.png)")
-            return index, "\n".join(parts), False, TRUNCATED_TAG in body
+                             f"({md_link(f'{assets.name}/page_{index + 1:04d}.png')})")
+            return index, "\n".join(parts), False, TRUNCATED_TAG in body, small
 
         parts.append(text if text else "*[no extractable text on this page]*")
 
@@ -407,10 +485,10 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                 quoted = "\n".join("> " + line if line.strip() else ">"
                                    for line in description.splitlines())
                 parts.append(
-                    f"\n\n![Page {index + 1}, figure {n}]({assets.name}/{name})\n\n"
-                    f"**Figure {index + 1}.{n} - transcribed by {opts.model}:**\n\n{quoted}")
+                    f"\n\n![Page {index + 1}, figure {n}]({md_link(f'{assets.name}/{name}')})"
+                    f"\n\n**Figure {index + 1}.{n} - transcribed by {opts.model}:**\n\n{quoted}")
 
-        return index, "\n".join(parts), False, truncated
+        return index, "\n".join(parts), False, truncated, small
     finally:
         doc.close()
 
@@ -506,12 +584,13 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
         # those pages alone and throw the rest of the book away.
         note = (f"<!-- IN PROGRESS: {result.pages_converted} of {len(targets)} pages so far; "
                 "this file is rewritten as the run continues. -->\n" if partial else "")
-        header = (f"# {opts.pdf.stem}\n\n{note}<!-- Converted from {opts.pdf.name} with "
-                  f"BetterMarkItDown ({opts.model}) on {time.strftime('%Y-%m-%d %H:%M')} -->\n")
+        header = (f"# {opts.title or opts.pdf.stem}\n\n{note}<!-- Converted from "
+                  f"{opts.pdf.name} with BetterMarkItDown ({opts.model}) on "
+                  f"{time.strftime('%Y-%m-%d %H:%M')} -->\n")
         body = [f.read_text(encoding="utf-8")
                 for f in sorted(pages_dir.glob("[0-9][0-9][0-9][0-9].md"))]
         tmp = opts.output.with_suffix(".md.tmp")
-        tmp.write_text(header + "".join(body) + "\n", encoding="utf-8")
+        tmp.write_text(header + "".join(body) + "\n", encoding="utf-8", newline="\n")
         tmp.replace(opts.output)
 
     emit("start", total=total, selected=len(targets), todo=len(todo), done=already_done)
@@ -521,7 +600,7 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
         if ABORT.is_set():
             return
         try:
-            idx, text, used_ocr, truncated = process_page(
+            idx, text, used_ocr, truncated, small = process_page(
                 index, pdf_path=str(opts.pdf), md=md, client=client,
                 opts=opts, cache=cache, limiter=limiter, meter=meter)
         except (DailyQuotaExceeded, BudgetExceeded) as exc:
@@ -533,13 +612,17 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
             emit("page_failed", page=index + 1, message=str(exc))
             return
 
-        (pages_dir / f"{idx + 1:04d}.md").write_text(text, encoding="utf-8")
+        # Always \n: Windows would write \r\n, and a script patching a page by
+        # matching '\n\n' would then miss without a word.
+        (pages_dir / f"{idx + 1:04d}.md").write_text(text, encoding="utf-8", newline="\n")
         with lock:
             result.pages_converted += 1
             if used_ocr:
                 result.pages_ocr.append(idx + 1)
             if truncated:
                 result.truncated.append(idx + 1)
+            if small:
+                result.pages_small_images.append(idx + 1)
             count = result.pages_converted
             if count % 10 == 0:
                 assemble(partial=True)
@@ -558,6 +641,7 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
     result.pages_ocr.sort()
     result.failed.sort()
     result.truncated.sort()
+    result.pages_small_images.sort()
     if ABORT.is_set() and opts.budget_usd and meter.cost() > opts.budget_usd:
         result.stopped_reason = "budget"
     emit("finished", result=result)
