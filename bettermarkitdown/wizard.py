@@ -27,8 +27,9 @@ from rich.table import Table
 from rich.text import Text
 
 from . import ocr
-from .config import DEFAULT_MODEL, PRICES, Options, get_api_key, redact
+from .config import Options, get_api_key, redact, resolve_endpoint
 from .core import Meter, convert, list_models
+from .providers import Provider, known_price
 
 console = Console()
 
@@ -112,37 +113,42 @@ def _report_inspection(pdf: Path, total: int, scanned: int, images: int) -> None
                         border_style="cyan", expand=False))
 
 
-def _ask_model(api_key: str | None) -> str:
-    if not Confirm.ask(f"\nUse the default model [bold]{DEFAULT_MODEL}[/]?", default=True):
-        if api_key:
-            with console.status("[cyan]Asking Google which models your key can call..."):
-                try:
-                    models = list_models(api_key)
-                except Exception as exc:
-                    models = []
-                    console.print(f"  [yellow]Could not list models:[/] {exc}")
-            if models:
-                for name in models:
-                    price = PRICES.get(name)
-                    cost = f"  [dim]${price[0]}/${price[1]} per 1M[/]" if price else ""
-                    console.print(f"  [green]-[/] {name}{cost}")
-        return Prompt.ask("Model", default=DEFAULT_MODEL)
-    return DEFAULT_MODEL
+def _ask_model(provider: Provider, api_key: str | None, base_url: str) -> str:
+    default = provider.default_model
+    if not default or not Confirm.ask(f"\nUse the default model [bold]{default}[/]?",
+                                      default=True):
+        with console.status(f"[cyan]Asking {provider.name} which models your key can "
+                            "call..."):
+            try:
+                models = list_models(api_key, base_url, provider=provider.id)
+            except Exception as exc:
+                models = []
+                console.print(f"  [yellow]Could not list models:[/] {exc}")
+        for name in models:
+            price = known_price(name)
+            cost = f"  [dim]${price[0]}/${price[1]} per 1M[/]" if price else ""
+            console.print(f"  [green]-[/] {name}{cost}")
+        return Prompt.ask("Model", default=default)
+    return default
 
 
 def run_wizard() -> int:
     console.print(Align.center(Text(_banner(), style="bold cyan")))
     console.print(Align.center(
-        Text("MarkItDown + Gemini vision, for PDFs whose content lives in the pictures\n",
+        Text("MarkItDown + a vision model, for PDFs whose content lives in the pictures\n",
              style="dim")))
 
-    api_key = get_api_key()
+    provider, base_url = resolve_endpoint()
+    api_key = get_api_key(provider=provider.id)
     if api_key:
-        console.print(f"[green]API key loaded[/] [dim]({redact(api_key)})[/]")
-    else:
-        console.print("[yellow]No API key found.[/] Set GEMINI_API_KEY or create a .env "
-                      "file (see .env.example).")
+        console.print(f"[green]{provider.name} key loaded[/] [dim]({redact(api_key)})[/]")
+    elif provider.needs_key:
+        console.print(f"[yellow]No {provider.name} key found.[/] Run "
+                      f"[bold]bettermarkitdown key set {provider.id}[/], or see .env.example.")
         console.print("[dim]You can still run a text-only pass with no API calls.[/]")
+    else:
+        console.print(f"[green]Using {provider.name}[/] [dim]({base_url})[/]")
+    has_vision = bool(api_key) or not provider.needs_key
 
     pdf = _ask_pdf()
 
@@ -158,8 +164,9 @@ def run_wizard() -> int:
                        default="all")
     pages = None if pages.strip().lower() in ("", "all") else pages.strip()
 
-    model = _ask_model(api_key) if api_key else DEFAULT_MODEL
-    no_vision = not api_key
+    model = (_ask_model(provider, api_key, base_url) if has_vision
+             else provider.default_model or "")
+    no_vision = not has_vision
 
     workers = IntPrompt.ask("[bold cyan]Parallel pages[/]", default=3)
     dpi = IntPrompt.ask("[bold cyan]Render DPI[/] [dim](300 for small or ornate type)[/]",
@@ -173,6 +180,7 @@ def run_wizard() -> int:
 
     opts = Options(pdf=pdf, output=output, work_dir=work_dir, pages=pages, model=model,
                    dpi=dpi, workers=workers, api_key=api_key, no_vision=no_vision,
+                   provider=provider.id, base_url=base_url,
                    save_images=False, ocr_fallback=ocr.available())
 
     if not opts.ocr_fallback:

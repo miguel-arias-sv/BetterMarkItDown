@@ -11,6 +11,40 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
+## [Unreleased]
+
+Work in progress on the `feature/setup-assistant` branch: choosing an AI service, then a
+setup page and workspace in the browser.
+
+### What's New
+
+- **Choose your AI service with `--provider`:** Google Gemini, OpenAI, Anthropic (Claude),
+  Moonshot Kimi, OpenRouter, Ollama on your own computer, or any other OpenAI-compatible
+  server. `bettermarkitdown providers` lists them with their default models and whether a
+  key is set.
+- **Claude through Anthropic's own SDK** (`pip install "bettermarkitdown[anthropic]"`). The
+  lowest thinking effort is used for transcription, and the cost meter knows Claude's prices.
+- **Keys in your computer's password store:** `bettermarkitdown key set|test|forget|status`.
+  `key test` checks a key for free by listing the models it can use. Environment variables
+  and `.env` still work and take precedence.
+- The cost meter knows OpenAI's GPT-5.4 mini and nano prices as well as Gemini's.
+
+### Fixed
+
+- **A Gemini key could be sent to another provider.** The key lookup always tried
+  `GEMINI_API_KEY` first, whatever the endpoint, so with `BMID_BASE_URL` pointing at OpenAI
+  and both keys set, the Google key went to OpenAI's server. Each provider now reads only its
+  own variables.
+- **Requests to OpenAI's GPT-5 models carried parameters those models refuse**:
+  `max_tokens` and `temperature=0`. The tool now sends `max_completion_tokens` and no
+  temperature to OpenAI, and drops any parameter a server refuses after the first refusal.
+
+### Changed
+
+- **OpenRouter keys go in `OPENROUTER_API_KEY`**, no longer `OPENAI_API_KEY`, so an OpenAI
+  key is never sent to OpenRouter. Run `bettermarkitdown key set openrouter`, or rename the
+  variable.
+
 ## [1.4.0] - 2026-10-26
 
 Lessons from converting chapters of a publisher's finance textbook that sets every

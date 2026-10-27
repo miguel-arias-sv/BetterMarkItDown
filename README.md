@@ -120,18 +120,25 @@ so a `node_modules` folder is not synced. Without Node the check is skipped, nev
 > at all — it raises `MissingDependencyException` on every page. `requirements.txt` pins
 > `markitdown[pdf]` for exactly this reason.
 
-Then add your key. Get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey):
+Then add your key. Get a Gemini key free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey),
+or use [another provider](#providers-and-tiers):
+
+```bash
+bettermarkitdown key set gemini      # paste it at the hidden prompt
+bettermarkitdown key test gemini     # free: lists the models the key can use
+```
+
+The key goes into your computer's own password store (Windows Credential Manager, the macOS
+Keychain, or the Secret Service on Linux), never into a plain file. An environment variable
+or a `.env` file still works and wins over the store, which suits scripts and CI:
 
 ```bash
 cp .env.example .env     # then edit .env and paste your key
 ```
 
-The tool reads, in order: `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`. A real
-environment variable always beats the `.env` file, so you can keep the key in your user
-environment and never have a secret in the repo at all.
-
-`.env` is gitignored. No key is ever written to disk by the tool, printed in full, or
-committed.
+Each provider reads only its own variables (`GEMINI_API_KEY`, `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, ...), so a key is never sent to another company's server.
+`.env` is gitignored. The tool never prints a key in full or commits one.
 
 ---
 
@@ -365,28 +372,47 @@ content policy, not a billing tier.
 
 ### Other hosted providers
 
-Any OpenAI-compatible endpoint works:
+Pick one with `--provider`. `bettermarkitdown providers` lists them, with each one's
+default model and whether a key is set:
+
+| `--provider` | Service | Key variable | Default model |
+|---|---|---|---|
+| `gemini` | Google Gemini (free tier available) | `GEMINI_API_KEY` | `gemini-3.6-flash` |
+| `openai` | OpenAI | `OPENAI_API_KEY` | `gpt-5.4-mini` |
+| `anthropic` | Claude, through Anthropic's SDK (`pip install "bettermarkitdown[anthropic]"`) | `ANTHROPIC_API_KEY` | `claude-opus-5-5` |
+| `kimi` | Moonshot Kimi | `MOONSHOT_API_KEY` | none: choose with `--model` |
+| `openrouter` | OpenRouter: one key, many models | `OPENROUTER_API_KEY` | `qwen/qwen3-vl-8b-instruct` |
+| `ollama` | A model on your own computer | none | `qwen3-vl:8b` |
+| `custom` | Any other OpenAI-compatible server (`--base-url`) | `BMID_API_KEY` | none |
 
 ```bash
-# OpenAI
-python -m bettermarkitdown book.pdf \
-  --base-url https://api.openai.com/v1 --model gpt-5-mini \
-  --price-in 0.25 --price-out 2.00
+bettermarkitdown key set anthropic
+python -m bettermarkitdown book.pdf --provider anthropic --model claude-haiku-5-5
 
-# OpenRouter — one key, many models
-python -m bettermarkitdown book.pdf \
-  --base-url https://openrouter.ai/api/v1 --model qwen/qwen3-vl-8b-instruct
+# OpenRouter: one key, many models
+python -m bettermarkitdown book.pdf --provider openrouter
 ```
 
-Set the key in `OPENAI_API_KEY`, or the endpoint once in `BMID_BASE_URL` and the model in
-`BMID_MODEL`.
+Set a default once with `BMID_PROVIDER` (and `BMID_MODEL`). A ChatGPT, Claude or Gemini
+*subscription* does not include API access; each company bills its API separately.
+
+Notes on individual providers:
+
+- **Claude:** the current models always think a little before answering; `--reasoning none`
+  asks for the lowest effort, which is all transcription needs. On models that support it,
+  a request that a safety check declines is retried on another Claude model within the same
+  call (Anthropic's server-side fallback).
+- **OpenAI:** GPT-5 models refuse `max_tokens` and any temperature but the default. The
+  tool sends what each model accepts, and learns from a refusal so it costs one call at
+  most.
 
 Two things to know when you leave Gemini:
 
-- **The cost meter only knows Gemini's price list.** On any other endpoint it reports
-  **$0.00** rather than inventing a bill. Pass `--price-in` / `--price-out` (USD per 1M
-  tokens) to get real numbers, and note that `--budget-usd` cannot stop a run whose prices
-  it does not know.
+- **The cost meter knows the prices of the models in the table above** (Gemini, OpenAI,
+  Claude; checked on the date recorded in `bettermarkitdown/providers/__init__.py`). For
+  any other model it reports **$0.00** rather than inventing a bill. Pass `--price-in` /
+  `--price-out` (USD per 1M tokens) to get real numbers, and note that `--budget-usd`
+  cannot stop a run whose prices it does not know.
 - **The model must accept images.** `--list-models` prints what your key can reach. On a
   non-Gemini endpoint it lists everything the server offers, because there is no reliable way
   to tell which of those are multimodal — check the provider's docs.
@@ -765,13 +791,16 @@ Node.js + katex        # optional, for the math render check in --verify (packag
 
 | Variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | API key, tried in that order |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini key |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MOONSHOT_API_KEY`, `OPENROUTER_API_KEY` | That provider's key; each provider reads only its own |
+| `BMID_API_KEY` | Key for a `custom` server (falls back to `OPENAI_API_KEY`) |
+| `BMID_PROVIDER` | Default provider, instead of passing `--provider` |
 | `BMID_BASE_URL` / `OPENAI_BASE_URL` | Default endpoint, instead of passing `--base-url` |
 | `BMID_MODEL` | Default model, instead of passing `--model` |
 | `BMID_KATEX_DIR` | A folder whose `node_modules` holds KaTeX, if it is not in the repo or the global npm root |
 
 All of these can live in `.env` instead. A real environment variable always wins over the
-file.
+file, and both win over a key saved with `bettermarkitdown key set`.
 
 ## Tests
 

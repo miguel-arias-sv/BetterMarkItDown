@@ -5,6 +5,10 @@ openai>=1.40
 pymupdf>=1.24
 pillow>=10.0
 rich>=13.0
+keyring>=24
+
+# Optional: Claude through Anthropic's own SDK.
+anthropic>=2.3
 
 # Optional: local OCR fallback for pages the vision model refuses.
 # Remove this line if you do not want the ~80 MB of ONNX runtime it pulls in.

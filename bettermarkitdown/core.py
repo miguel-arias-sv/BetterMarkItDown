@@ -21,7 +21,6 @@ vision layer around it:
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
 import json
@@ -36,12 +35,15 @@ from urllib.parse import quote
 from . import ocr as local_ocr
 from .config import GEMINI_BASE_URL, Options, Result
 from .prompts import FIGURE_PROMPT, PAGE_PROMPT
+from .providers import (
+    DailyQuotaExceeded,
+    as_vision_client,
+    get_provider,
+    infer_provider,
+    make_client,
+)
 
 Event = Callable[[str, dict], None]
-
-
-class DailyQuotaExceeded(RuntimeError):
-    """The key's per-day quota for this model is gone; waiting will not help."""
 
 
 class BudgetExceeded(RuntimeError):
@@ -53,7 +55,6 @@ class PageFailed(RuntimeError):
 
 
 ABORT = threading.Event()
-NO_REASONING_PARAM: set[str] = set()
 
 # Output-token caps, tried in order. Almost every page fits in the first; a dense
 # full-page table does not, and a reply cut off at the cap used to be cached as if
@@ -183,13 +184,15 @@ def cut_off(finish_reason: str) -> bool:
 def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
                    limiter: RateLimiter, meter: Meter | None = None,
                    reasoning: str = "none", max_retries: int = 5) -> str:
+    """Transcribe one image. `client` is a providers.VisionClient, or a raw
+    `openai.OpenAI` client as before 1.5."""
     key = hashlib.sha256(png + prompt.encode() + model.encode()
                          + str(reasoning).encode()).hexdigest()
     hit = cache.get(key)
     if hit is not None and has_content(hit):   # older runs cached comment-only blanks
         return hit
 
-    b64 = base64.b64encode(png).decode("ascii")
+    client = as_vision_client(client)
     delay = 4.0
     last_err: Exception | None = None
     step = 0                   # index into MAX_TOKENS
@@ -200,30 +203,14 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
             raise BudgetExceeded("aborted")
         try:
             limiter.wait()
-            extra = {}
-            if reasoning and reasoning != "default" and model not in NO_REASONING_PARAM:
-                extra["reasoning_effort"] = reasoning
-
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url",
-                         "image_url": {"url": "data:image/png;base64," + b64}},
-                    ],
-                }],
-                temperature=0.0,
-                max_tokens=MAX_TOKENS[step],
-                **extra,
-            )
+            reply = client.describe(png, prompt, model=model, max_tokens=MAX_TOKENS[step],
+                                    reasoning=reasoning)
             if meter is not None:
-                meter.add(getattr(response, "usage", None))
+                meter.add(reply.usage)
 
-            text = (response.choices[0].message.content or "").strip()
+            text = (reply.text or "").strip()
             text = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", text).strip()
-            reason = str(response.choices[0].finish_reason or "")
+            reason = reply.finish_reason
 
             if cut_off(reason):
                 # A reply that hit the cap is incomplete, however long it looks.
@@ -254,15 +241,12 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
             cache.put(key, text)
             return text
 
+        except DailyQuotaExceeded:
+            ABORT.set()
+            raise
         except Exception as exc:
             last_err = exc
             message = str(exc)
-            if "PerDay" in message or "RequestsPerDay" in message:
-                ABORT.set()
-                raise DailyQuotaExceeded(message) from exc
-            if "reasoning_effort" in message and model not in NO_REASONING_PARAM:
-                NO_REASONING_PARAM.add(model)     # older model: drop the param
-                continue
             if partial and step > 0 and re.search(r"max_tokens|context|too large", message, re.I):
                 # A local server whose context is smaller than the larger cap.
                 return partial + TRUNCATION_NOTE
@@ -270,7 +254,7 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
                 raise BudgetExceeded(message) from exc
             if attempt == max_retries - 1:
                 break
-            time.sleep(_retry_after(message) or delay)
+            time.sleep(getattr(exc, "retry_after", 0) or _retry_after(message) or delay)
             delay *= 2
 
     return f"*[vision call failed: {type(last_err).__name__}: {last_err}]*"
@@ -513,23 +497,16 @@ def parse_pages(spec: str | None, total: int) -> list[int]:
     return sorted(p for p in out if 0 <= p < total)
 
 
-def list_models(api_key: str, base_url: str = GEMINI_BASE_URL) -> list[str]:
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key or "not-needed", base_url=base_url)
-    skip = ("embedding", "tts", "live", "robotics")
-    names = [m.id.replace("models/", "") for m in client.models.list()]
-    if base_url.rstrip("/") != GEMINI_BASE_URL.rstrip("/"):
-        # A non-Gemini endpoint: we cannot guess which of its models see images,
-        # so list everything it offers rather than filtering to nothing.
-        return sorted(names)
-    return [n for n in names if "gemini" in n and not any(w in n for w in skip)]
+def list_models(api_key: str | None, base_url: str = GEMINI_BASE_URL,
+                provider: str | None = None) -> list[str]:
+    spec = get_provider(provider) if provider else infer_provider(base_url)
+    return make_client(spec, api_key, base_url).list_models()
 
 
 def convert(opts: Options, on_event: Event | None = None) -> Result:
     """Convert a PDF to Markdown. `on_event(name, payload)` reports progress."""
     import pymupdf
     from markitdown import MarkItDown
-    from openai import OpenAI
 
     ABORT.clear()
 
@@ -544,16 +521,19 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
 
     client = None
     if not opts.no_vision:
-        if not opts.api_key and opts.is_gemini():
-            raise RuntimeError("No API key. Set GEMINI_API_KEY (or use no_vision).")
-        # Local servers accept any non-empty key; the openai client demands one.
-        client = OpenAI(api_key=opts.api_key or "not-needed",
-                        base_url=opts.base_url, timeout=180.0)
+        spec = opts.provider_spec()
+        if not opts.api_key and spec.needs_key:
+            raise RuntimeError(f"No API key for {spec.name}. Run `bettermarkitdown key set "
+                               f"{spec.id}`, set {' or '.join(spec.key_env)}, or use "
+                               "no_vision.")
+        client = make_client(spec, opts.api_key, opts.base_url)
 
-    # MarkItDown still receives the client: unused on the PDF path, but it is what
-    # makes md.convert("figure.png") work if you reuse this object for images.
-    md = (MarkItDown(enable_plugins=False, llm_client=client, llm_model=opts.model)
-          if client else MarkItDown(enable_plugins=False))
+    # MarkItDown still receives an OpenAI-protocol client when there is one: unused on
+    # the PDF path, but it is what makes md.convert("figure.png") work if you reuse
+    # this object for images.
+    llm = getattr(client, "sdk", None) if client and spec.protocol == "openai" else None
+    md = (MarkItDown(enable_plugins=False, llm_client=llm, llm_model=opts.model)
+          if llm else MarkItDown(enable_plugins=False))
 
     doc = pymupdf.open(opts.pdf)
     total = doc.page_count

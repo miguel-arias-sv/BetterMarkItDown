@@ -1,7 +1,10 @@
 """Flag-driven CLI, for scripting and repeat runs.
 
 With no arguments at all, `bettermarkitdown` starts the interactive wizard
-instead (see wizard.py).
+instead (see wizard.py). Two commands manage providers and keys:
+
+    bettermarkitdown providers
+    bettermarkitdown key set|test|forget|status [PROVIDER]
 """
 
 from __future__ import annotations
@@ -11,23 +14,26 @@ import contextlib
 import sys
 from pathlib import Path
 
-from . import __version__, ocr
+from . import __version__, credentials, ocr
 from .config import (
     DEFAULT_MODEL,
-    GEMINI_BASE_URL,
     Options,
+    find_api_key,
     get_api_key,
-    get_base_url,
     get_model,
+    redact,
+    resolve_endpoint,
 )
 from .core import Meter, convert, list_models
+from .providers import PROVIDERS, get_provider
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bettermarkitdown",
         description="Convert image-heavy and scanned PDFs to Markdown with "
-                    "MarkItDown + Gemini vision.")
+                    "MarkItDown + a vision model (Gemini, OpenAI, Claude, Kimi, OpenRouter, "
+                    "or one on your own computer).")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("pdf", nargs="?", help="input PDF (omit for the interactive wizard)")
     parser.add_argument("-o", "--output", help="output .md (default: alongside the PDF)")
@@ -41,11 +47,15 @@ def build_parser() -> argparse.ArgumentParser:
                                            "cache; point it at a local disk when the output "
                                            "lives in a synced folder")
 
+    parser.add_argument("--provider", choices=list(PROVIDERS),
+                        help="which AI service to use (default: gemini, or $BMID_PROVIDER). "
+                             "`bettermarkitdown providers` lists them")
     parser.add_argument("--model", default=None,
-                        help=f"default: {DEFAULT_MODEL}, or $BMID_MODEL if set")
+                        help=f"default: the provider's own ({DEFAULT_MODEL} for Gemini), or "
+                             "$BMID_MODEL if set")
     parser.add_argument("--base-url",
-                        help="OpenAI-compatible endpoint to use instead of Gemini, e.g. "
-                             "http://localhost:11434/v1 for Ollama. Also read from "
+                        help="OpenAI-compatible endpoint to use instead of the provider's, "
+                             "e.g. http://localhost:11434/v1 for Ollama. Also read from "
                              "BMID_BASE_URL")
     parser.add_argument("--reasoning", default="none",
                         choices=["none", "low", "medium", "high", "default"],
@@ -122,6 +132,82 @@ def print_toc(pdf: Path) -> int:
     return 0
 
 
+def print_providers() -> int:
+    for spec in PROVIDERS.values():
+        key, source = find_api_key(spec.id)
+        if not spec.needs_key and not key:
+            status = "no key needed"
+        else:
+            status = f"key from {source}" if key else "no key"
+        model = spec.default_model or "(pick from its list)"
+        print(f"{spec.id:<11} {spec.name:<36} {model:<28} {status}")
+    print("\nSave a key: bettermarkitdown key set PROVIDER. Use one: --provider PROVIDER.")
+    return 0
+
+
+def key_command(argv: list[str]) -> int:
+    """`key set|test|forget|status [PROVIDER] [--stdin]`."""
+    parser = argparse.ArgumentParser(prog="bettermarkitdown key",
+                                     description="Manage API keys in this computer's "
+                                                 "password store.")
+    parser.add_argument("action", choices=["set", "test", "forget", "status"])
+    parser.add_argument("provider", nargs="?", choices=list(PROVIDERS))
+    parser.add_argument("--stdin", action="store_true",
+                        help="read the key from standard input instead of a hidden prompt")
+    args = parser.parse_args(argv)
+
+    if args.action == "status":
+        for spec in PROVIDERS.values():
+            if spec.needs_key or spec.key_env:
+                key, source = find_api_key(spec.id)
+                print(f"{spec.id:<11} {redact(key):<18} {source}")
+        return 0
+
+    if not args.provider:
+        parser.error(f"'{args.action}' needs a provider: {', '.join(PROVIDERS)}")
+    spec = get_provider(args.provider)
+
+    if args.action == "set":
+        if args.stdin:
+            key = sys.stdin.readline().strip()
+        else:
+            import getpass
+            if spec.key_url:
+                print(f"Create a {spec.name} key at {spec.key_url}")
+            key = getpass.getpass(f"Paste the {spec.name} key (hidden): ").strip()
+        try:
+            credentials.store_key(spec.id, key)
+        except (ValueError, credentials.KeyStoreUnavailable) as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"Saved {redact(key)} for {spec.name} in this computer's password store.")
+        return 0
+
+    if args.action == "forget":
+        try:
+            removed = credentials.forget_key(spec.id)
+        except credentials.KeyStoreUnavailable as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"Removed the saved {spec.name} key." if removed
+              else f"No {spec.name} key was saved.")
+        return 0
+
+    # test: listing models is free, and proves the key and the endpoint both work.
+    key, source = find_api_key(spec.id)
+    if spec.needs_key and not key:
+        print(f"No {spec.name} key. Run: bettermarkitdown key set {spec.id}", file=sys.stderr)
+        return 1
+    try:
+        models = list_models(key, spec.base_url or "", provider=spec.id)
+    except Exception as exc:
+        print(f"{spec.name} rejected the request: {exc}", file=sys.stderr)
+        return 1
+    print(f"{spec.name}: key from {source or 'nowhere (none needed)'} works; "
+          f"{len(models)} models available.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     # Piped or redirected on Windows, stdout is cp1252: a PDF named with a curly
@@ -133,17 +219,27 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         from .wizard import main as wizard_main
         return wizard_main()
+    # A PDF is a path ending in .pdf, so these words cannot be mistaken for one.
+    if argv[0] == "providers":
+        return print_providers()
+    if argv[0] == "key":
+        return key_command(argv[1:])
 
     args = build_parser().parse_args(argv)
-    api_key = get_api_key()
-    base_url = get_base_url(args.base_url)
-    gemini = base_url.rstrip("/") == GEMINI_BASE_URL.rstrip("/")
+    try:
+        provider, base_url = resolve_endpoint(args.provider, args.base_url)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    api_key = get_api_key(provider=provider.id)
+    no_key = (f"No {provider.name} key. Run `bettermarkitdown key set {provider.id}`, set "
+              f"{' or '.join(provider.key_env) or 'a key'}, or pass --no-vision.")
 
     if args.list_models:
-        if not api_key and gemini:
-            print("No API key. Set GEMINI_API_KEY or create a .env file.", file=sys.stderr)
+        if not api_key and provider.needs_key:
+            print(no_key, file=sys.stderr)
             return 1
-        for name in list_models(api_key, base_url):
+        for name in list_models(api_key, base_url, provider=provider.id):
             print(name)
         return 0
 
@@ -179,20 +275,29 @@ def main(argv: list[str] | None = None) -> int:
         print(format_report(results, render_note=render_note))
         return 3 if any(r.flagged for r in results) else 0
 
-    if not api_key and not args.no_vision and gemini:
-        print("No API key. Set GEMINI_API_KEY, create a .env file, or pass --no-vision.",
-              file=sys.stderr)
+    if not api_key and not args.no_vision and provider.needs_key:
+        print(no_key, file=sys.stderr)
         return 1
+
+    model = get_model(args.model)
+    if not args.model and model == DEFAULT_MODEL and provider.id != "gemini":
+        # No model asked for: use the chosen provider's own default, not Gemini's.
+        if not provider.default_model and not args.no_vision:
+            print(f"{provider.name} has no default model. Pick one with --model "
+                  f"(--list-models --provider {provider.id} lists them).", file=sys.stderr)
+            return 1
+        model = provider.default_model or model
 
     opts = Options(
         pdf=pdf,
         output=(Path(args.output).expanduser().resolve() if args.output
                 else pdf.with_suffix(".md")),
         work_dir=Path(args.work_dir).expanduser().resolve() if args.work_dir else None,
-        pages=args.pages, title=args.title, model=get_model(args.model),
+        pages=args.pages, title=args.title, model=model,
         reasoning=args.reasoning,
         api_key=api_key,
         base_url=base_url,
+        provider=provider.id,
         dpi=args.dpi, max_edge=args.max_edge, min_chars=args.min_chars,
         min_figure_pt=args.min_figure_pt, figure_pad=args.figure_pad,
         ignore_small_images=args.ignore_small_images,
