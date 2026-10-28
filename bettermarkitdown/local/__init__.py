@@ -23,10 +23,6 @@ from ..system import SystemProfile
 
 # On Apple Silicon the graphics may use roughly two thirds of main memory.
 UNIFIED_SHARE = 0.66
-# Without a graphics card the suggestion stops at the standard tier. Measured on a
-# Core Ultra 7 155H laptop (2026-10-27, `local test`): 4B 91 s and 8B 133 s per page,
-# both reading the test page correctly. 8B stays listed for harder pages.
-PROCESSOR_TIERS = ("basic", "standard")
 DISK_MARGIN_GB = 2.0
 MIN_NVIDIA_DRIVER = 550        # Ollama's minimum for most NVIDIA cards
 
@@ -53,14 +49,16 @@ CATALOG: tuple[LocalModel, ...] = (       # smallest first
     LocalModel(
         tag="qwen3-vl:4b-instruct", name="Qwen3-VL 4B", tier="standard",
         download_gb=3.3, min_vram_gb=5.0, min_ram_gb=16,
-        good_at="Everyday documents, tables and most scans.",
-        limits="Dense maths and multi-column pages still need a careful read."),
+        good_at="Text, tables and formulas: all read correctly in our tests.",
+        limits="Weak on graphs: it gave a textbook chart one line and skipped a slide's "
+               "two graphs entirely. Check every figure."),
     LocalModel(
         tag="qwen3-vl:8b-instruct", name="Qwen3-VL 8B", tier="high",
         download_gb=6.2, min_vram_gb=8.0, min_ram_gb=32,
-        good_at="The most accurate local option: hard scans, tables and much of the maths.",
-        limits="Still behind the large online models on dense notation, and slow without "
-               "a graphics card."),
+        good_at="The most accurate local option: described a textbook chart almost as well "
+                "as Gemini, with axes and formulas.",
+        limits="Still skipped a slide's two hand-drawn graphs entirely, and is slow without a "
+               "graphics card (2-3 minutes a page on a laptop processor)."),
 )
 
 
@@ -109,11 +107,12 @@ def recommend(profile: SystemProfile) -> Recommendation:
                      "too slow to use. A free Gemini key is the better choice here."])
 
     # The largest that fits: the tiers already encode "smallest that works well"
-    # for each class of machine. On the processor alone, the largest is too slow
-    # for what it adds, so stop at the standard tier. Every option stays listed.
+    # for each class of machine. That holds on the processor alone too, though it is
+    # slower: measured on a Core Ultra 7 155H (2026-10-27), 4B took 91 s a page and
+    # 8B 133-188 s, but 4B gave a textbook chart one line where 8B described it
+    # almost as well as Gemini. Pictures are what this tool is for. Every option
+    # stays listed, so a person who wants speed can choose 4B.
     chosen = fitting[-1]
-    if chosen.runs_on == "processor":
-        chosen = [o for o in fitting if o.model.tier in PROCESSOR_TIERS][-1]
     rec = Recommendation(model=chosen.model, runs_on=chosen.runs_on, options=options)
     gpu = profile.best_gpu()
 
@@ -126,17 +125,13 @@ def recommend(profile: SystemProfile) -> Recommendation:
     else:
         rec.reasons.append(f"{profile.ram_gb:g} GB of memory is enough for "
                            f"{chosen.model.name}.")
-        index = fitting.index(chosen)
-        lighter = fitting[index - 1].model.name if index > 0 else None
-        heavier = fitting[index + 1].model.name if index + 1 < len(fitting) else None
-        if heavier:
-            rec.reasons.append(f"{heavier} also fits and is more accurate on hard pages, but "
-                               "without a graphics card it is about 1.5 times slower.")
+        lighter = fitting[-2].model.name if len(fitting) > 1 else None
         rec.warnings.append(
             "No graphics card with memory of its own, so the processor reads the pages. "
             "Expect it to be slow, a minute or more per page. The speed test after the "
             "download gives the real figure"
-            + (f"; {lighter} is faster if that is too slow." if lighter else "."))
+            + (f"; {lighter} is faster, but describes charts and diagrams less well."
+               if lighter else "."))
         if any(g.integrated and g.vendor in ("Intel", "AMD") for g in profile.gpus):
             rec.warnings.append("The built-in graphics will probably not help: on an Intel Arc "
                                 "laptop Ollama ran entirely on the processor. Its experimental "

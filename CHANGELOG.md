@@ -44,6 +44,15 @@ setup page and workspace in the browser.
   100-page book would take about 67 minutes"). It asks before installing or downloading
   anything. `local install`, `pull`, `test` and `status` do the steps one at a time.
 - With `--provider ollama`, one page at a time and no rate limit are the defaults.
+- **Word and PowerPoint files: DOCX, PPTX, and Office 97-2003 DOC and PPT.** MarkItDown reads
+  the text, headings and tables, but left every picture as an empty placeholder. Each
+  picture is now saved next to the output and described by the vision model where it
+  stood, like PDF figures. DOC and PPT are first saved as DOCX / PPTX by Microsoft Word or
+  PowerPoint if installed, else LibreOffice, which keeps their tables intact.
+  `--as-pages` sends any of them through PDF instead, page by page.
+- Local models' limits now say what was measured on graph pages: Qwen3-VL 4B gave a
+  textbook chart one line, 8B described it nearly as well as Gemini, and both skipped a
+  slide's hand-drawn graphs.
 
 ### Fixed (local models)
 

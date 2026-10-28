@@ -182,8 +182,8 @@ PROVIDERS: dict[str, Provider] = {p.id: p for p in (
         id="ollama", name="Ollama (on this computer)", protocol="openai",
         base_url=OLLAMA_BASE_URL, default_model="qwen3-vl:8b-instruct",
         needs_key=False, local=True,
-        summary="Private, free and unlimited. Slower, and small models make more mistakes "
-                "in maths and complex layouts.",
+        summary="Private, free and unlimited. Slower, and small models can skip graphs or "
+                "describe them in a line; check every figure.",
     ),
     Provider(
         id="custom", name="Other OpenAI-compatible server", protocol="openai",

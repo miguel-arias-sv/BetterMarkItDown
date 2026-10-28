@@ -1,6 +1,7 @@
 # Core. A plain `pip install markitdown` CANNOT open PDFs - the [pdf] extra
-# (pdfminer.six + pdfplumber) is what its PDF converter needs.
-markitdown[pdf]>=0.1.7
+# (pdfminer.six + pdfplumber) is what its PDF converter needs; [docx] and [pptx]
+# (mammoth, python-pptx) read Word and PowerPoint files.
+markitdown[pdf,docx,pptx]>=0.1.7
 openai>=1.40
 pymupdf>=1.24
 pillow>=10.0

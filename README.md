@@ -200,6 +200,25 @@ result = convert(Options(pdf=Path("book.pdf"), output=Path("book.md"), api_key="
 print(result.pages_converted, result.cost)
 ```
 
+### Word and PowerPoint files
+
+```bash
+python -m bettermarkitdown report.docx           # or slides.pptx, old.doc, lecture.ppt
+python -m bettermarkitdown slides.pptx --as-pages
+```
+
+- **DOCX and PPTX** are read by MarkItDown, which keeps headings, lists and tables. On its
+  own it leaves every picture as an empty placeholder. Here each picture is saved to
+  `<name>_assets/` and described by the vision model where it stood, with a data table for
+  charts. Pictures smaller than 48 px (icons, bullets) are kept but not sent.
+- **DOC and PPT** (Office 97-2003) are opened by Microsoft Word or PowerPoint if installed,
+  else by the free [LibreOffice](https://www.libreoffice.org/download/)
+  (`winget install --id TheDocumentFoundation.LibreOffice -e`). They are saved as DOCX / PPTX
+  in the work folder and read as above.
+- **`--as-pages`** turns any of them into a PDF first and converts it page by page, like a
+  PDF, with page images to compare against. Tables come out flatter, since PDF text has no
+  table structure.
+
 ---
 
 ## Recommended workflow
@@ -433,10 +452,18 @@ bettermarkitdown system          # memory, graphics, disk, and a suggested model
 bettermarkitdown system --json   # the same, for scripts
 ```
 
-It suggests the Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on 16 GB or more,
-8B with a graphics card of 8 GB or more or on a Mac with 16 GB. Without a graphics card it
-stops at 4B even when 8B fits: on a Core Ultra 7 laptop, 4B took 91 s a page and 8B 133 s,
-for the same result on the test page. It lists every size with its limits, so you choose.
+It suggests the largest Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on
+16 GB, 8B on 32 GB or with a graphics card of 8 GB or more, or on a Mac with 16 GB. It warns
+when pages would be read by the processor alone, and lists every size with what it is good
+at and its limits, so you choose. What we measured on a Core Ultra 7 laptop (processor only):
+
+| | Per page | Text, tables, formulas | Textbook chart | Slide with two hand-drawn graphs |
+|---|---|---|---|---|
+| Qwen3-VL 4B | ~90 s | correct | one line | skipped |
+| Qwen3-VL 8B | ~130-190 s | correct | nearly as good as Gemini | skipped |
+
+Local models can leave a diagram out altogether, so check every figure, or use an online
+provider for figure-heavy documents.
 
 **Set it up in one command.** [Ollama](https://ollama.com) runs the model; the tool installs
 it for you (Windows, through winget) and asks before installing or downloading anything:

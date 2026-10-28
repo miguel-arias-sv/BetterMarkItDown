@@ -37,7 +37,13 @@ def build_parser() -> argparse.ArgumentParser:
                     "MarkItDown + a vision model (Gemini, OpenAI, Claude, Kimi, OpenRouter, "
                     "or one on your own computer).")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("pdf", nargs="?", help="input PDF (omit for the interactive wizard)")
+    parser.add_argument("pdf", nargs="?", metavar="FILE",
+                        help="the document: PDF, DOCX, PPTX, or Office 97-2003 DOC / PPT "
+                             "(omit for the interactive wizard)")
+    parser.add_argument("--as-pages", action="store_true",
+                        help="Word / PowerPoint files: turn the file into a PDF first (with "
+                             "Microsoft Office or LibreOffice) and convert it page by page, "
+                             "for page images to check against. Tables come out flatter")
     parser.add_argument("-o", "--output", help="output .md (default: alongside the PDF)")
     parser.add_argument("--pages", help="1-based selection: '5', '10-40', '1,5,9-12'")
     parser.add_argument("--toc", action="store_true",
@@ -298,6 +304,17 @@ def main(argv: list[str] | None = None) -> int:
     if not pdf.is_file():
         print(f"Not found: {pdf}", file=sys.stderr)
         return 1
+    from . import formats
+    suffix = pdf.suffix.lower()
+    if suffix not in formats.SUPPORTED:
+        print(f"Cannot read {suffix or 'files without an extension'}. Supported: "
+              f"{', '.join(sorted(formats.SUPPORTED))}.", file=sys.stderr)
+        return 1
+    through_pdf = suffix != ".pdf" and args.as_pages
+    if suffix != ".pdf" and (args.toc or args.verify):
+        print("--toc and --verify read a PDF. For this file, convert with --as-pages first, "
+              "then run them on the PDF in the work folder.", file=sys.stderr)
+        return 1
 
     if args.toc:
         return print_toc(pdf)
@@ -363,11 +380,50 @@ def main(argv: list[str] | None = None) -> int:
         ocr_fallback=args.ocr_fallback and ocr.available(), fresh=args.fresh,
     )
 
+    run = convert
+    if suffix in formats.NATIVE and not through_pdf:
+        run = formats.convert_office
+    elif suffix in formats.LEGACY and not through_pdf:
+        # Saved as DOCX / PPTX first: through PDF, every table would come out flattened.
+        modern = opts.resolved_work_dir() / (pdf.stem + formats.modern_suffix(pdf))
+        if not modern.is_file() or modern.stat().st_mtime < pdf.stat().st_mtime:
+            print(f"Opening {pdf.name} to save it as {modern.suffix}...", flush=True)
+            try:
+                used = formats.office_convert(pdf, modern, modern.suffix[1:])
+            except formats.ConverterMissing as exc:
+                print(exc, file=sys.stderr)
+                return 1
+            print(f"  done, with {used}", flush=True)
+        opts.pdf = modern
+        opts.title = opts.title or pdf.stem
+        original = pdf
+
+        def run(opts, on_event=None):
+            return formats.convert_office(opts, on_event, original=original)
+    elif through_pdf:
+        as_pdf = opts.resolved_work_dir() / f"{pdf.stem}.pdf"
+        if not as_pdf.is_file() or as_pdf.stat().st_mtime < pdf.stat().st_mtime:
+            print(f"Turning {pdf.name} into a PDF...", flush=True)
+            try:
+                used = formats.office_to_pdf(pdf, as_pdf)
+            except formats.ConverterMissing as exc:
+                print(exc, file=sys.stderr)
+                return 1
+            print(f"  done, with {used}", flush=True)
+        opts.pdf = as_pdf
+        opts.title = opts.title or pdf.stem
+
     def on_event(name: str, payload: dict) -> None:
-        if name == "start":
+        if name == "start" and run is not convert:
+            print(f"{pdf.name}: {payload['total']} picture(s) to look at, model="
+                  f"{opts.model if not opts.no_vision else 'none (text only)'}", flush=True)
+        elif name == "start":
             print(f"{opts.pdf.name}: {payload['total']} pages, converting "
                   f"{payload['selected']} ({payload['done']} already done), "
                   f"model={opts.model}, workers={opts.workers}", flush=True)
+        elif name == "image_done":
+            print(f"  [{payload['done']}] picture {payload['picture']} of {payload['total']} "
+                  "described", flush=True)
         elif name == "page_done":
             tag = " [local OCR]" if payload.get("ocr") else ""
             print(f"  [{payload['done']}/{payload['total']}] page {payload['page']} "
@@ -376,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  !! {payload['message']} - left unwritten, rerun to retry", flush=True)
 
     try:
-        result = convert(opts, on_event)
+        result = run(opts, on_event)
     except KeyboardInterrupt:
         print("\nInterrupted - finished pages are kept, rerun to resume.")
         return 130
@@ -387,13 +443,15 @@ def main(argv: list[str] | None = None) -> int:
     if result.calls:
         print(f"\nSpend: {result.calls} vision calls | {result.tokens_in:,} in + "
               f"{result.tokens_out:,} out tokens | {Meter.usd(result.cost)}")
+        unit = result.unit
         per_page = result.cost / max(1, result.pages_converted)
-        print(f"       {Meter.usd(per_page)} per page over {result.pages_converted} page(s)")
+        print(f"       {Meter.usd(per_page)} per {unit} over {result.pages_converted} "
+              f"{unit}(s)")
         remaining = result.pages_selected - result.pages_converted
         if remaining > 0:
             print(f"       ~{Meter.usd(per_page * remaining)} to finish the remaining "
-                  f"{remaining} page(s); ~{Meter.usd(per_page * result.pages_total)} for "
-                  f"all {result.pages_total} pages")
+                  f"{remaining} {unit}(s); ~{Meter.usd(per_page * result.pages_total)} for "
+                  f"all {result.pages_total} {unit}s")
 
     if result.pages_ocr:
         print(f"\nLocal OCR was used for {len(result.pages_ocr)} page(s): "

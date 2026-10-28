@@ -466,8 +466,7 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                                              cache=cache, limiter=limiter, meter=meter,
                                              reasoning=opts.reasoning)
                 truncated = truncated or TRUNCATED_TAG in description
-                quoted = "\n".join("> " + line if line.strip() else ">"
-                                   for line in description.splitlines())
+                quoted = quote_block(description)
                 parts.append(
                     f"\n\n![Page {index + 1}, figure {n}]({md_link(f'{assets.name}/{name}')})"
                     f"\n\n**Figure {index + 1}.{n} - transcribed by {opts.model}:**\n\n{quoted}")
@@ -503,6 +502,23 @@ def list_models(api_key: str | None, base_url: str = GEMINI_BASE_URL,
     return make_client(spec, api_key, base_url).list_models()
 
 
+def vision_client(opts: Options):
+    """The run's vision client, or None with no_vision. Refuses to start without a key
+    for a provider that needs one, rather than failing on the first page."""
+    if opts.no_vision:
+        return None
+    spec = opts.provider_spec()
+    if not opts.api_key and spec.needs_key:
+        raise RuntimeError(f"No API key for {spec.name}. Run `bettermarkitdown key set "
+                           f"{spec.id}`, set {' or '.join(spec.key_env)}, or use no_vision.")
+    return make_client(spec, opts.api_key, opts.base_url)
+
+
+def quote_block(text: str) -> str:
+    """Markdown blockquote, keeping blank lines inside it."""
+    return "\n".join("> " + line if line.strip() else ">" for line in text.splitlines())
+
+
 def convert(opts: Options, on_event: Event | None = None) -> Result:
     """Convert a PDF to Markdown. `on_event(name, payload)` reports progress."""
     import pymupdf
@@ -519,19 +535,13 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
     pages_dir.mkdir(parents=True, exist_ok=True)
     opts.output.parent.mkdir(parents=True, exist_ok=True)
 
-    client = None
-    if not opts.no_vision:
-        spec = opts.provider_spec()
-        if not opts.api_key and spec.needs_key:
-            raise RuntimeError(f"No API key for {spec.name}. Run `bettermarkitdown key set "
-                               f"{spec.id}`, set {' or '.join(spec.key_env)}, or use "
-                               "no_vision.")
-        client = make_client(spec, opts.api_key, opts.base_url)
+    client = vision_client(opts)
 
     # MarkItDown still receives an OpenAI-protocol client when there is one: unused on
     # the PDF path, but it is what makes md.convert("figure.png") work if you reuse
     # this object for images.
-    llm = getattr(client, "sdk", None) if client and spec.protocol == "openai" else None
+    openai_protocol = client is not None and opts.provider_spec().protocol == "openai"
+    llm = getattr(client, "sdk", None) if openai_protocol else None
     md = (MarkItDown(enable_plugins=False, llm_client=llm, llm_model=opts.model)
           if llm else MarkItDown(enable_plugins=False))
 

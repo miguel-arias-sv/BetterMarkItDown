@@ -23,7 +23,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "markitdown[pdf]>=0.1.7",
+    # [docx] and [pptx] read Word and PowerPoint files (mammoth, python-pptx).
+    "markitdown[pdf,docx,pptx]>=0.1.7",
     "openai>=1.40",
     "pymupdf>=1.24",
     "pillow>=10.0",
@@ -36,7 +37,7 @@ dependencies = [
 ocr = ["rapidocr-onnxruntime>=1.2"]
 # Claude, through Anthropic's own SDK.
 anthropic = ["anthropic>=2.3"]
-dev = ["pytest>=8.0", "ruff>=0.5"]
+dev = ["pytest>=8.0", "ruff>=0.5", "python-docx>=1.1"]   # python-docx builds test documents
 
 [project.scripts]
 bettermarkitdown = "bettermarkitdown.cli:main"

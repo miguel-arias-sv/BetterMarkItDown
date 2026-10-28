@@ -215,3 +215,4 @@ class Result:
     tokens_out: int = 0
     cost: float = 0.0
     stopped_reason: str = ""
+    unit: str = "page"          # what the counts above count: pages, or pictures (DOCX/PPTX)
