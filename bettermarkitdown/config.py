@@ -181,6 +181,9 @@ class Options:
     save_images: bool = True
     ocr_fallback: bool = True
     fresh: bool = False
+    # Ask the model again instead of reusing its cached answer ("transcribe this page
+    # again" on the setup page). Pays for every page it redoes.
+    ask_again: bool = False
 
     def resolved_work_dir(self) -> Path:
         return self.work_dir or self.output.parent / (self.output.stem + "_work")

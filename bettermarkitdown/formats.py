@@ -16,6 +16,7 @@ gives page images to check the result against.
 from __future__ import annotations
 
 import base64
+import functools
 import io
 import os
 import re
@@ -68,12 +69,13 @@ def _to_png(raw: bytes) -> tuple[bytes | None, tuple[int, int]]:
 
 
 def convert_office(opts: Options, on_event: core.Event | None = None,
-                   original: Path | None = None) -> Result:
+                   original: Path | None = None,
+                   abort: threading.Event | None = None) -> Result:
     """Convert a DOCX or PPTX (`opts.pdf` is the document's path). `original` names the
-    file it was saved from, when that was a DOC or PPT."""
+    file it was saved from, when that was a DOC or PPT. Setting `abort` stops the run."""
     from markitdown import MarkItDown
 
-    core.ABORT.clear()
+    abort = abort if abort is not None else threading.Event()
 
     def emit(name: str, **payload):
         if on_event:
@@ -89,7 +91,7 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
                                                     keep_data_uris=True).text_content or ""
     pictures = list(_PICTURE.finditer(text))
 
-    meter = core.Meter(*opts.prices(), opts.budget_usd)
+    meter = core.Meter(*opts.prices(), opts.budget_usd, abort)
     cache = core.Cache(work_dir / "cache.json")
     limiter = core.RateLimiter(opts.rpm)
     assets = opts.assets_dir()
@@ -117,7 +119,8 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
             description = core.describe_image(client, opts.model,
                                               core.shrink(png, opts.max_edge), FIGURE_PROMPT,
                                               cache=cache, limiter=limiter, meter=meter,
-                                              reasoning=opts.reasoning)
+                                              reasoning=opts.reasoning,
+                                              use_cache=not opts.ask_again)
         except (core.DailyQuotaExceeded, core.BudgetExceeded) as exc:
             # Pictures described so far are cached: a rerun pays only for the rest.
             result.stopped_reason = ("budget" if isinstance(exc, core.BudgetExceeded)
@@ -127,7 +130,8 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
             result.pages_converted += 1
             if core.TRUNCATED_TAG in description:
                 result.truncated.append(n)
-        emit("image_done", picture=n, done=result.pages_converted, total=len(pictures))
+        emit("image_done", picture=n, done=result.pages_converted, total=len(pictures),
+             cost=meter.cost())
         return (f"{block}\n\n**Picture {n} - transcribed by {opts.model}:**\n\n"
                 f"{core.quote_block(description)}")
 
@@ -149,6 +153,34 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
     result.cost = meter.cost()
     emit("finished", result=result)
     return result
+
+
+def runner_for(opts: Options, as_pages: bool = False, log=print):
+    """The function that converts `opts.pdf`, called as run(opts, on_event, abort=...).
+
+    PDF: core.convert. DOCX / PPTX: convert_office. DOC / PPT: saved as DOCX / PPTX in
+    the work dir first, since through PDF every table would come out flattened.
+    `as_pages`: any Office file becomes a PDF in the work dir, read page by page.
+    Either step points `opts.pdf` at the file it made, and is skipped when that file
+    is newer than the original. Raises ConverterMissing when nothing can open it."""
+    source = opts.pdf
+    suffix = source.suffix.lower()
+    if suffix == ".pdf":
+        return core.convert
+    if suffix in NATIVE and not as_pages:
+        return convert_office
+    target = ".pdf" if as_pages else modern_suffix(source)
+    made = opts.resolved_work_dir() / (source.stem + target)
+    if not made.is_file() or made.stat().st_mtime < source.stat().st_mtime:
+        log(f"Turning {source.name} into a PDF..." if as_pages
+            else f"Opening {source.name} to save it as {target}...")
+        used = office_convert(source, made, target[1:])
+        log(f"  done, with {used}")
+    opts.pdf = made
+    opts.title = opts.title or source.stem
+    if as_pages:
+        return core.convert
+    return functools.partial(convert_office, original=source)
 
 
 # --- anything Office can open, through PDF --------------------------------------------

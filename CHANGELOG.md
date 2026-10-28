@@ -63,6 +63,42 @@ setup page and workspace in the browser.
 - Local models' limits now say what was measured on graph pages: Qwen3-VL 4B gave a
   textbook chart one line, 8B described it nearly as well as Gemini, and both skipped a
   slide's hand-drawn graphs.
+- **A workspace on the setup page: add, convert, check and edit your files.**
+  - **Your files:** drop or choose PDF, Word and PowerPoint files. Adding one copies it into
+    a library on this computer (`%LOCALAPPDATA%\BetterMarkItDown`); results go to
+    `Documents\BetterMarkItDown\<name>\`.
+  - **A free look first:** how many pages are scanned, which set their equations as
+    pictures, how many figures, and the chapters, then an estimate: the cost at the model's
+    list price for an online service, or the time from the speed test for a local model.
+    Pick pages or a chapter, set a spending cap, or "Try 3 pages first" to measure the cost.
+  - **Progress while it converts:** pages done, the page being read, the time left measured
+    from this run's own pages, and the money spent so far. Stop at any time; finished pages
+    are kept, and converting again continues where it stopped.
+  - **Review side by side:** each page's picture next to its Markdown, which you can edit,
+    with a preview that draws the maths (KaTeX) and the pictures. Saving puts the edit back
+    in the result and checks the page again against the PDF's own text. Pages the free
+    check flags are listed to go through first. "Transcribe this page again" asks the model
+    anew.
+  - **Take it away:** download the `.md`, or a `.zip` with its pictures, or open the folder.
+  - Without an AI service, files convert as text only, for free, and pages with little or
+    no text layer are listed.
+- **"Play while you wait":** during a conversion expected to take more than 2 minutes, a
+  small game is offered (never started by itself): a llama hops over stacks of paper,
+  ducks under flying staplers and collects loose pages. It plays in a corner of the page,
+  full screen, or popped out above other windows in Chrome and Edge, with the progress bar
+  on top, and says when your file is ready. Settings can turn the offer off.
+- The speed test's result is remembered, for the workspace's time estimates.
+
+### Fixed (setup page)
+
+- **A refused request could reach the page as a network error.** When the server refused a
+  request before reading what it sent, Windows reset the connection, now and then, instead
+  of delivering the refusal. The server now reads the rest of the request first. This was
+  the rare failure in the test suite.
+- **Stopping one run could stop, or restart, another.** The stop signal was shared by every
+  conversion in the process; each run now has its own.
+- "Choose a OpenAI model" now reads "Choose a model: OpenAI", and Settings says how to set
+  up another OpenAI-compatible server (from the command line, with `--base-url`).
 
 ### Fixed (local models)
 

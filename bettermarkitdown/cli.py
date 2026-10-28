@@ -27,7 +27,7 @@ from .config import (
     redact,
     resolve_endpoint,
 )
-from .core import Meter, convert, list_models
+from .core import Meter, list_models
 from .providers import PROVIDERS, get_provider, known_price, model_note
 
 
@@ -382,41 +382,14 @@ def main(argv: list[str] | None = None) -> int:
         ocr_fallback=args.ocr_fallback and ocr.available(), fresh=args.fresh,
     )
 
-    run = convert
-    if suffix in formats.NATIVE and not through_pdf:
-        run = formats.convert_office
-    elif suffix in formats.LEGACY and not through_pdf:
-        # Saved as DOCX / PPTX first: through PDF, every table would come out flattened.
-        modern = opts.resolved_work_dir() / (pdf.stem + formats.modern_suffix(pdf))
-        if not modern.is_file() or modern.stat().st_mtime < pdf.stat().st_mtime:
-            print(f"Opening {pdf.name} to save it as {modern.suffix}...", flush=True)
-            try:
-                used = formats.office_convert(pdf, modern, modern.suffix[1:])
-            except formats.ConverterMissing as exc:
-                print(exc, file=sys.stderr)
-                return 1
-            print(f"  done, with {used}", flush=True)
-        opts.pdf = modern
-        opts.title = opts.title or pdf.stem
-        original = pdf
-
-        def run(opts, on_event=None):
-            return formats.convert_office(opts, on_event, original=original)
-    elif through_pdf:
-        as_pdf = opts.resolved_work_dir() / f"{pdf.stem}.pdf"
-        if not as_pdf.is_file() or as_pdf.stat().st_mtime < pdf.stat().st_mtime:
-            print(f"Turning {pdf.name} into a PDF...", flush=True)
-            try:
-                used = formats.office_to_pdf(pdf, as_pdf)
-            except formats.ConverterMissing as exc:
-                print(exc, file=sys.stderr)
-                return 1
-            print(f"  done, with {used}", flush=True)
-        opts.pdf = as_pdf
-        opts.title = opts.title or pdf.stem
+    try:
+        run = formats.runner_for(opts, through_pdf, log=lambda line: print(line, flush=True))
+    except formats.ConverterMissing as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
     def on_event(name: str, payload: dict) -> None:
-        if name == "start" and run is not convert:
+        if name == "start" and opts.pdf.suffix.lower() != ".pdf":   # pictures, not pages
             print(f"{pdf.name}: {payload['total']} picture(s) to look at, model="
                   f"{opts.model if not opts.no_vision else 'none (text only)'}", flush=True)
         elif name == "start":

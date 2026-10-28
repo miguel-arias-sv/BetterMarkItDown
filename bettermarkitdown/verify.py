@@ -431,6 +431,32 @@ def add_render_check(results: list[PageCheck], work_dir: Path) -> str:
             if failed else "Math render check (KaTeX): every formula renders.")
 
 
+def page_notes(r: PageCheck, limit: int = 12) -> list[str]:
+    """What to look at on one page, in a sentence each: the setup page's badges."""
+    def show(c: Counter) -> str:
+        return ", ".join(w for w, _ in c.most_common(limit))
+
+    notes = []
+    if r.status == "flagged":
+        parts = [f"missing here: {show(r.missing)}" if r.missing else "",
+                 f"not in the PDF: {show(r.extra)}" if r.extra else ""]
+        notes.append("The words differ from the PDF's own text ("
+                     + "; ".join(p for p in parts if p) + ").")
+        if r.numbers_missing or r.numbers_extra:
+            parts = [f"missing here: {show(r.numbers_missing)}" if r.numbers_missing else "",
+                     f"not in the PDF: {show(r.numbers_extra)}" if r.numbers_extra else ""]
+            notes.append("Numbers differ (" + "; ".join(p for p in parts if p) + ").")
+    if r.truncated:
+        notes.append("Cut off: the model reached its output limit, so the end of the page "
+                     "is missing. Finish it from the page image.")
+    if r.ocr:
+        notes.append("Read by the local OCR fallback: the words may be right, but maths and "
+                     "layout are unreliable. Retype it from the page image.")
+    notes += [f"Broken maths: {problem}." for problem in r.math]
+    notes += [f"Markup: {problem}." for problem in r.markup]
+    return notes
+
+
 def format_report(results: list[PageCheck], limit: int = 20,
                   render_note: str | None = None) -> str:
     def show(c: Counter) -> str:

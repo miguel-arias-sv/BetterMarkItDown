@@ -208,7 +208,7 @@ def test_cli_saves_a_legacy_file_in_the_new_format_and_reads_it(tmp_path, monkey
 
 
 def test_as_pages_sends_a_file_through_pdf(tmp_path, monkeypatch):
-    from bettermarkitdown import cli
+    from bettermarkitdown import cli, core
 
     source = tmp_path / "lecture.ppt"
     source.write_bytes(b"\xd0\xcf\x11\xe0")
@@ -219,7 +219,7 @@ def test_as_pages_sends_a_file_through_pdf(tmp_path, monkeypatch):
         captured["opts"] = opts
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "convert", fake_convert)
+    monkeypatch.setattr(core, "convert", fake_convert)
     monkeypatch.chdir(tmp_path)
     assert cli.main([str(source), "--no-vision", "--as-pages"]) == 130
     assert made == [".pdf"] and captured["opts"].pdf.name == "lecture.pdf"

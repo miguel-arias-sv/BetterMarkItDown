@@ -1,10 +1,12 @@
-// The setup page. Plain JavaScript, no libraries. Every screen is a function that
-// returns DOM; show() renders one and remembers it for the Back button.
+// The setup page. Plain JavaScript; the only libraries are the preview's, in vendor/.
+// Every screen is a function that returns DOM; show() renders one and remembers it for
+// the Back button. The workspace's screens are in workspace.js.
 "use strict";
 
 const TOKEN = document.querySelector('meta[name="bmid-token"]').content;
 const root = document.getElementById("app");
-const S = { state: null, system: null, localModel: null, history: [] };
+// unsaved: set by a screen with work not saved yet; asked before leaving it.
+const S = { state: null, system: null, localModel: null, history: [], unsaved: null };
 
 // --- helpers ---------------------------------------------------------------------
 
@@ -61,6 +63,7 @@ const money = (usd) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`
 async function refresh() {
   S.state = await api("/api/state");
   document.getElementById("nav-settings").hidden = !S.state.settings.setup_done;
+  document.getElementById("nav-library").hidden = !S.state.settings.setup_done;
 }
 
 async function save(changes) {
@@ -73,6 +76,7 @@ async function save(changes) {
 const screens = {};
 
 async function render(name, args) {
+  root.classList.toggle("wide", Boolean(screens[name].wide));
   root.replaceChildren(h("p", { class: "loading", text: "Loading..." }));
   try {
     const node = await screens[name](...args);
@@ -88,9 +92,19 @@ async function render(name, args) {
   }
 }
 
-function show(name, ...args) { S.history.push([name, args]); return render(name, args); }
+function mayLeave() {
+  if (S.unsaved && S.unsaved() && !confirm("This page has changes you have not saved. Leave without saving them?")) return false;
+  S.unsaved = null;
+  return true;
+}
+function show(name, ...args) {
+  if (!mayLeave()) return undefined;
+  S.history.push([name, args]);
+  return render(name, args);
+}
 function replace(name, ...args) { S.history[S.history.length - 1] = [name, args]; return render(name, args); }
 function back() {
+  if (!mayLeave()) return undefined;
   if (S.history.length > 1) S.history.pop();
   const [name, args] = S.history[S.history.length - 1];
   return render(name, args);
@@ -274,7 +288,7 @@ screens.pickmodel = async (pid) => {
     selected = () => picker.value;
   }
   const status = h("p", { role: "status" });
-  return card(`Choose a ${p.name} model`, p.summary,
+  return card(`Choose a model: ${p.name}`, p.summary,
     p.models.length ? null : h("label", { for: "model", text: "Model (pick one that accepts images)" }),
     picker,
     explain("Prices are the company's list prices; pages full of pictures cost more. You can switch " +
@@ -460,9 +474,12 @@ screens.done = async () => {
     p ? `Using ${p.name}${active.model ? ", " + active.model : ""}.` : null,
     human ? [
       h("h2", { text: "Convert a document" }),
-      h("p", { text: "The workspace, where you add files here and compare, edit and download the " +
-        "result, arrives in the next update. Until then, convert from a terminal:" }),
-      commandLine(),
+      h("p", { text: "Add files in your library, convert them, and check and edit the result " +
+        "beside the original." }),
+      h("div", { class: "actions" },
+        h("button", { type: "button", class: "primary", onclick: () => show("library") }, "Open your library")),
+      explain("From a terminal, the same conversion is:"),
+      automatic() ? null : commandLine(),
     ] : null,
     agent ? [
       h("h2", { text: "For your AI agent" }),
@@ -482,7 +499,8 @@ screens.settings = async () => {
     const ready = !p.needs_key || p.key_source;
     return h("tr", {},
       h("td", {}, h("strong", { text: p.name })),
-      h("td", { text: !p.needs_key ? "no key needed"
+      h("td", { text: p.id === "custom" ? "set it up from the command line, with --base-url"
+        : !p.needs_key ? "no key needed"
         : fromEnvironment(p) ? `key set in the ${p.key_source} environment variable (change it there)`
         : p.key_source ? `key saved (${p.key_hint})` : "no key" }),
       h("td", {},
@@ -515,6 +533,9 @@ screens.settings = async () => {
     [["assisted", "Assisted: explain each choice"], ["automatic", "Automatic: recommended choices, ask before installing or spending"]]
       .map(([v, label]) => h("option", { value: v, selected: S.state.settings.help_level === v }, label)));
 
+  const game = h("input", { type: "checkbox", id: "game", checked: S.state.settings.offer_game,
+    onchange: async () => { await save({ offer_game: game.checked }); } });
+
   return card("Settings", `In use: ${provider(active.provider)?.name || "nothing yet"}${active.model ? ", " + active.model : ""}.`,
     h("h2", { text: "AI services" }),
     h("table", { class: "keys" }, rows),
@@ -522,6 +543,8 @@ screens.settings = async () => {
     h("p", { text: officeLine }), installOffice, officeStatus,
     h("h2", { text: "Help" }),
     h("label", { for: "help", text: "How much help the setup gives" }), help,
+    h("h2", { text: "While you wait" }),
+    h("label", { class: "check" }, game, " Offer a small game during conversions longer than 2 minutes"),
     h("div", { class: "actions" },
       h("button", { type: "button", onclick: () => show("audience") }, "Run setup again"),
       backButton()));
@@ -535,19 +558,23 @@ async function quit() {
 
 // --- start ------------------------------------------------------------------------------
 
+document.getElementById("nav-library").addEventListener("click", () => show("library"));
 document.getElementById("nav-settings").addEventListener("click", () => show("settings"));
+window.addEventListener("beforeunload", (ev) => {
+  if (S.unsaved && S.unsaved()) { ev.preventDefault(); ev.returnValue = ""; }
+});
 document.getElementById("nav-quit").addEventListener("click", quit);
 // Tell the server the page is still open; it stops on its own a while after the tab closes.
 const keepAlive = setInterval(() => { api("/api/ping").catch(() => {}); }, 20000);
 
-// "#screen=keyguide&arg=openai" opens one screen directly: for screenshots and checks.
+// "#screen=keyguide&arg=openai" opens one screen directly, for screenshots and checks;
+// "&arg=" may repeat. Once set up, the page opens on the library.
 function startScreen() {
   const params = new URLSearchParams(location.hash.slice(1));
   const name = params.get("screen");
-  show("welcome");
-  if (name && name !== "welcome" && Object.hasOwn(screens, name)) {
-    show(name, ...(params.get("arg") ? [params.get("arg")] : []));
-  }
+  const home = S.state.settings.setup_done ? "library" : "welcome";
+  show(home);
+  if (name && name !== home && Object.hasOwn(screens, name)) show(name, ...params.getAll("arg"));
 }
 
 refresh().then(startScreen).catch((err) => {

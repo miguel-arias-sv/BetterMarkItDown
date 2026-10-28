@@ -150,7 +150,7 @@ def test_pull_needs_a_yes_before_downloading(server, monkeypatch, capsys):
 
 
 def test_cli_converts_with_the_roomy_copy_one_page_at_a_time(server, monkeypatch, tmp_path):
-    from bettermarkitdown import cli
+    from bettermarkitdown import cli, core
 
     server.models = ["qwen3-vl:4b-instruct"]
     captured = {}
@@ -159,7 +159,7 @@ def test_cli_converts_with_the_roomy_copy_one_page_at_a_time(server, monkeypatch
         captured["opts"] = opts
         raise KeyboardInterrupt            # stop before any real work
 
-    monkeypatch.setattr(cli, "convert", fake_convert)
+    monkeypatch.setattr(core, "convert", fake_convert)
     monkeypatch.chdir(tmp_path)
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF-1.4")

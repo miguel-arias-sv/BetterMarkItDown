@@ -3,52 +3,11 @@ faked. Covers the safety rules as much as the features."""
 
 from __future__ import annotations
 
-import http.client
 import json
-import threading
-import time
 
-import pytest
+from apphttp import call, wait
 
 from bettermarkitdown import settings
-from bettermarkitdown.app.server import App
-
-
-@pytest.fixture
-def app():
-    server = App(port=0)
-    thread = threading.Thread(target=server.serve, kwargs={"idle_minutes": 0}, daemon=True)
-    thread.start()
-    yield server
-    server.httpd.shutdown()
-    server.httpd.server_close()
-
-
-def call(app, method, path, body=None, *, token=True, host=None, origin=None, raw=False):
-    conn = http.client.HTTPConnection("127.0.0.1", app.port, timeout=10)
-    headers = {"Host": host or f"127.0.0.1:{app.port}", "Content-Type": "application/json"}
-    if token:
-        headers["X-BMID-Token"] = app.token
-    if origin:
-        headers["Origin"] = origin
-    conn.request(method, path, body=json.dumps(body) if body is not None else None,
-                 headers=headers)
-    response = conn.getresponse()
-    data = response.read()
-    conn.close()
-    if raw:
-        return response.status, data, dict(response.getheaders())
-    return response.status, json.loads(data or b"{}")
-
-
-def wait(app, job):
-    for _ in range(100):
-        if job["status"] != "running":
-            return job
-        time.sleep(0.05)
-        _, job = call(app, "GET", f"/api/jobs/{job['id']}")
-    raise AssertionError("job did not finish")
-
 
 # --- safety ------------------------------------------------------------------------
 
@@ -196,10 +155,5 @@ def test_a_failed_job_reports_why(app, monkeypatch):
 
 def test_quit_stops_the_server(app):
     assert call(app, "POST", "/api/quit", {})[0] == 200
-    for _ in range(50):
-        try:
-            call(app, "GET", "/api/ping")
-        except OSError:
-            return
-        time.sleep(0.05)
-    raise AssertionError("server still answering")
+    app.thread.join(5)
+    assert not app.thread.is_alive()

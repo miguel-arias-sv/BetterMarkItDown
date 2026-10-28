@@ -58,7 +58,7 @@ def ping(app, _body) -> dict:
 
 
 def save_settings(app, body) -> dict:
-    allowed = {"audience", "help_level", "provider", "model", "setup_done"}
+    allowed = {"audience", "help_level", "provider", "model", "setup_done", "offer_game"}
     unknown = set(body) - allowed
     if unknown:
         raise ValueError(f"unknown setting(s): {', '.join(sorted(unknown))}")
@@ -165,6 +165,8 @@ def local_test(app, body) -> dict:
     def work(job):
         job.message = "Loading the model and reading a test page..."
         result = ollama.speed_test(ollama.with_context(model.tag))
+        # Remembered for the workspace's time estimates.
+        settings.update(speed={**settings.load().speed, model.tag: result.page_seconds})
         return {"load_seconds": result.load_seconds, "page_seconds": result.page_seconds,
                 "gpu_share": result.gpu_share, "read_ok": result.read_ok,
                 "verdict": result.verdict()}

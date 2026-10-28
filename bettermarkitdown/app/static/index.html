@@ -5,18 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="bmid-token" content="__TOKEN__">
 <title>BetterMarkItDown</title>
+<link rel="stylesheet" href="/vendor/katex.min.css">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <header class="top">
   <span class="brand">BetterMarkItDown</span>
   <nav>
+    <button id="nav-library" class="link" type="button" hidden>Your files</button>
     <button id="nav-settings" class="link" type="button" hidden>Settings</button>
     <button id="nav-quit" class="link" type="button">Quit</button>
   </nav>
 </header>
 <main id="app" aria-live="polite"><p class="loading">Loading...</p></main>
 <noscript><p class="card">This page needs JavaScript. It runs only on your computer.</p></noscript>
+<script src="/vendor/marked.umd.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/vendor/katex.min.js"></script>
+<script src="/preview.js"></script>
+<script src="/game.js"></script>
 <script src="/app.js"></script>
+<script src="/workspace.js"></script>
 </body>
 </html>

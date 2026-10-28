@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 AUDIENCES = ("human", "agent", "both")
@@ -24,6 +24,9 @@ class Settings:
     provider: str = ""        # a PROVIDERS id
     model: str = ""
     setup_done: bool = False
+    # Seconds per page measured by the speed test, per local model: time estimates.
+    speed: dict[str, float] = field(default_factory=dict)
+    offer_game: bool = True   # "Play while you wait" during long conversions
 
 
 def config_dir() -> Path:
@@ -75,8 +78,11 @@ def update(**changes) -> Settings:
             raise ValueError(f"unknown provider '{value}'")
         if name == "model" and not isinstance(value, str):
             raise ValueError("model must be text")
-        if name == "setup_done":
+        if name in ("setup_done", "offer_game"):
             value = bool(value)
+        if name == "speed" and not (isinstance(value, dict) and all(
+                isinstance(k, str) and isinstance(v, (int, float)) for k, v in value.items())):
+            raise ValueError("speed must map model names to seconds")
         if name not in {f.name for f in fields(Settings)}:
             raise ValueError(f"unknown setting '{name}'")
         setattr(current, name, value)
