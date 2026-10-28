@@ -23,6 +23,10 @@ from ..system import SystemProfile
 
 # On Apple Silicon the graphics may use roughly two thirds of main memory.
 UNIFIED_SHARE = 0.66
+# Without a graphics card the suggestion stops at the standard tier. Measured on a
+# Core Ultra 7 155H laptop (2026-10-27, `local test`): 4B 91 s and 8B 133 s per page,
+# both reading the test page correctly. 8B stays listed for harder pages.
+PROCESSOR_TIERS = ("basic", "standard")
 DISK_MARGIN_GB = 2.0
 MIN_NVIDIA_DRIVER = 550        # Ollama's minimum for most NVIDIA cards
 
@@ -105,8 +109,11 @@ def recommend(profile: SystemProfile) -> Recommendation:
                      "too slow to use. A free Gemini key is the better choice here."])
 
     # The largest that fits: the tiers already encode "smallest that works well"
-    # for each class of machine. Lighter options stay listed for speed.
+    # for each class of machine. On the processor alone, the largest is too slow
+    # for what it adds, so stop at the standard tier. Every option stays listed.
     chosen = fitting[-1]
+    if chosen.runs_on == "processor":
+        chosen = [o for o in fitting if o.model.tier in PROCESSOR_TIERS][-1]
     rec = Recommendation(model=chosen.model, runs_on=chosen.runs_on, options=options)
     gpu = profile.best_gpu()
 
@@ -119,15 +126,21 @@ def recommend(profile: SystemProfile) -> Recommendation:
     else:
         rec.reasons.append(f"{profile.ram_gb:g} GB of memory is enough for "
                            f"{chosen.model.name}.")
-        lighter = fitting[-2].model.name if len(fitting) > 1 else None
+        index = fitting.index(chosen)
+        lighter = fitting[index - 1].model.name if index > 0 else None
+        heavier = fitting[index + 1].model.name if index + 1 < len(fitting) else None
+        if heavier:
+            rec.reasons.append(f"{heavier} also fits and is more accurate on hard pages, but "
+                               "without a graphics card it is about 1.5 times slower.")
         rec.warnings.append(
             "No graphics card with memory of its own, so the processor reads the pages. "
-            "Expect it to be slow, possibly a minute or more per page. The speed test after "
-            "the download gives the real figure"
+            "Expect it to be slow, a minute or more per page. The speed test after the "
+            "download gives the real figure"
             + (f"; {lighter} is faster if that is too slow." if lighter else "."))
         if any(g.integrated and g.vendor in ("Intel", "AMD") for g in profile.gpus):
-            rec.warnings.append("Ollama may use the built-in graphics to speed this up "
-                                "(its Vulkan support is still experimental).")
+            rec.warnings.append("The built-in graphics will probably not help: on an Intel Arc "
+                                "laptop Ollama ran entirely on the processor. Its experimental "
+                                "Vulkan support may change that on some chips.")
 
     if profile.disk_free_gb and profile.disk_free_gb < chosen.model.download_gb + DISK_MARGIN_GB:
         rec.warnings.append(f"Only {profile.disk_free_gb:g} GB free on the disk that holds the "

@@ -32,7 +32,9 @@ def machine(name: str) -> SystemProfile:
     ("office_desktop_16gb_apu", "qwen3-vl:4b-instruct", "processor"),
     ("laptop_rtx4050_6gb_old_driver_full_disk", "qwen3-vl:4b-instruct", "graphics card"),
     ("gaming_desktop_rtx3060_12gb", "qwen3-vl:8b-instruct", "graphics card"),
-    ("laptop_core_ultra_32gb_arc_igpu", "qwen3-vl:8b-instruct", "processor"),
+    # 32 GB fits 8B, but on the processor alone it measured 1.5x slower than 4B for the
+    # same result (133 s vs 91 s per page on this very laptop), so 4B is suggested.
+    ("laptop_core_ultra_32gb_arc_igpu", "qwen3-vl:4b-instruct", "processor"),
     ("macbook_air_m3_16gb", "qwen3-vl:8b-instruct", "shared memory"),
 ])
 def test_each_kind_of_machine_gets_a_sensible_model(name, tag, runs_on):
@@ -51,7 +53,9 @@ def test_too_little_memory_points_to_an_online_provider():
 
 def test_processor_only_machines_are_warned_about_speed_and_offered_a_lighter_model():
     rec = recommend(machine("laptop_core_ultra_32gb_arc_igpu"))
-    assert any("slow" in w and "Qwen3-VL 4B is faster" in w for w in rec.warnings)
+    assert any("slow" in w and "Qwen3-VL 2B is faster" in w for w in rec.warnings)
+    assert any("Qwen3-VL 8B also fits" in r for r in rec.reasons)   # offered, not hidden
+    assert next(o for o in rec.options if o.model.tier == "high").fits
     assert any("Vulkan" in w for w in rec.warnings)
 
 

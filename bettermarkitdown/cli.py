@@ -1,10 +1,12 @@
 """Flag-driven CLI, for scripting and repeat runs.
 
 With no arguments at all, `bettermarkitdown` starts the interactive wizard
-instead (see wizard.py). Two commands manage providers and keys:
+instead (see wizard.py). Other commands:
 
     bettermarkitdown providers
     bettermarkitdown key set|test|forget|status [PROVIDER]
+    bettermarkitdown system | doctor              [--json]
+    bettermarkitdown local status|install|pull|test|setup [MODEL]
 """
 
 from __future__ import annotations
@@ -79,8 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--figure-pad", type=float, default=22.0,
                         help="margin around figure crops so captions come along (default 22)")
 
-    parser.add_argument("--workers", type=int, default=3, help="parallel pages (default 3)")
-    parser.add_argument("--rpm", type=int, default=60, help="max requests per minute")
+    parser.add_argument("--workers", type=int,
+                        help="parallel pages (default 3; 1 for a model on this computer)")
+    parser.add_argument("--rpm", type=int,
+                        help="max requests per minute (default 60; no limit for a model on "
+                             "this computer)")
 
     parser.add_argument("--budget-usd", type=float, default=0.0,
                         help="stop cleanly once this much has been spent (0 = no cap)")
@@ -264,6 +269,9 @@ def main(argv: list[str] | None = None) -> int:
         return key_command(argv[1:])
     if argv[0] in ("system", "doctor"):
         return system_command(argv[0], argv[1:])
+    if argv[0] == "local":
+        from .local.commands import main as local_main
+        return local_main(argv[1:])
 
     args = build_parser().parse_args(argv)
     try:
@@ -327,6 +335,14 @@ def main(argv: list[str] | None = None) -> int:
                   f"(--list-models --provider {provider.id} lists them).", file=sys.stderr)
             return 1
         model = provider.default_model or model
+    if provider.id == "ollama" and not args.no_vision:
+        # Ollama's default context is too small for a page; use the copy with room.
+        from .local import ollama
+        model = ollama.with_context(model)
+
+    # A local server reads one page at a time, and has no rate limit to respect.
+    workers = args.workers or (1 if provider.local else 3)
+    rpm = args.rpm if args.rpm is not None else (0 if provider.local else 60)
 
     opts = Options(
         pdf=pdf,
@@ -341,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         dpi=args.dpi, max_edge=args.max_edge, min_chars=args.min_chars,
         min_figure_pt=args.min_figure_pt, figure_pad=args.figure_pad,
         ignore_small_images=args.ignore_small_images,
-        workers=args.workers, rpm=args.rpm, budget_usd=args.budget_usd,
+        workers=workers, rpm=rpm, budget_usd=args.budget_usd,
         price_in=args.price_in, price_out=args.price_out, estimate=args.estimate,
         no_vision=args.no_vision, save_images=args.save_images,
         ocr_fallback=args.ocr_fallback and ocr.available(), fresh=args.fresh,

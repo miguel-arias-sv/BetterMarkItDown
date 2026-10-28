@@ -168,8 +168,11 @@ def run_wizard() -> int:
     model = (_ask_model(provider, api_key, base_url) if has_vision
              else provider.default_model or "")
     no_vision = not has_vision
+    if provider.id == "ollama" and has_vision:
+        from .local import ollama
+        model = ollama.with_context(model)     # the default context is too small for a page
 
-    workers = IntPrompt.ask("[bold cyan]Parallel pages[/]", default=3)
+    workers = IntPrompt.ask("[bold cyan]Parallel pages[/]", default=1 if provider.local else 3)
     dpi = IntPrompt.ask("[bold cyan]Render DPI[/] [dim](300 for small or ornate type)[/]",
                         default=200)
 
@@ -181,7 +184,7 @@ def run_wizard() -> int:
 
     opts = Options(pdf=pdf, output=output, work_dir=work_dir, pages=pages, model=model,
                    dpi=dpi, workers=workers, api_key=api_key, no_vision=no_vision,
-                   provider=provider.id, base_url=base_url,
+                   provider=provider.id, base_url=base_url, rpm=0 if provider.local else 60,
                    save_images=False, ocr_fallback=ocr.available())
 
     if not opts.ocr_fallback:

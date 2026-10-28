@@ -433,24 +433,42 @@ bettermarkitdown system          # memory, graphics, disk, and a suggested model
 bettermarkitdown system --json   # the same, for scripts
 ```
 
-It suggests the largest Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on
-16 GB or a graphics card with 6 GB, 8B on 32 GB or a card with 8 GB or more. It also warns
-when pages would be read by the processor (slow), and lists every size with its limits so
-you can pick a lighter, faster one.
+It suggests the Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on 16 GB or more,
+8B with a graphics card of 8 GB or more or on a Mac with 16 GB. Without a graphics card it
+stops at 4B even when 8B fits: on a Core Ultra 7 laptop, 4B took 91 s a page and 8B 133 s,
+for the same result on the test page. It lists every size with its limits, so you choose.
 
-Anything with an OpenAI-compatible server works. [Ollama](https://ollama.com) is the
-shortest path:
+**Set it up in one command.** [Ollama](https://ollama.com) runs the model; the tool installs
+it for you (Windows, through winget) and asks before installing or downloading anything:
 
 ```bash
-ollama pull qwen3-vl:8b-instruct
-python -m bettermarkitdown book.pdf \
-  --base-url http://localhost:11434/v1 \
-  --model qwen3-vl:8b-instruct \
-  --workers 1 --rpm 0
+bettermarkitdown local setup        # suggest a model, install Ollama, download, time a test page
 ```
 
-`--workers 1` because a local server usually processes one request at a time anyway, and
-parallel requests just fight over VRAM. `--rpm 0` removes a throttle you no longer need.
+Or step by step:
+
+```bash
+bettermarkitdown local install      # Ollama itself
+bettermarkitdown local pull 4b      # 2b, 4b, 8b, or any Ollama tag; shows the size first
+bettermarkitdown local test 4b      # seconds per page on this computer, and a plain verdict
+bettermarkitdown local status       # what is installed and running
+python -m bettermarkitdown book.pdf --provider ollama --model qwen3-vl:4b-instruct
+```
+
+Three things happen without you having to know about them:
+
+- **Pages are not cut short.** Ollama gives every model a 4,096-token context, which a page
+  image plus a dense transcription overflows without any error. The tool converts with a copy
+  of the model that has a 12,288-token context (`bmid-qwen3-vl-4b-instruct`: settings only,
+  no second download).
+- **One page at a time, no throttle.** A local server works on one request at a time anyway,
+  and parallel requests fight over memory, so `--workers 1 --rpm 0` are the defaults for
+  `--provider ollama`.
+- **Ollama is reached at 127.0.0.1**, not localhost, which on Windows tries IPv6 first and
+  loses seconds on every page.
+
+Any other OpenAI-compatible server (LM Studio, llama.cpp, vLLM) works with
+`--provider custom --base-url http://...`. Set its context length yourself.
 
 ### Light models worth downloading
 

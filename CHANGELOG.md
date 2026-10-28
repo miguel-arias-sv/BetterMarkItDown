@@ -38,6 +38,20 @@ setup page and workspace in the browser.
   at and its limits, so you choose. `--json` for scripts.
 - **`bettermarkitdown doctor`** prints one report for a bug report: version, provider, where
   each key comes from (never the key), optional parts installed, and the system summary.
+- **`bettermarkitdown local setup` runs a model on your computer in one command.** It suggests
+  a model, installs Ollama (Windows, through winget), downloads the model with a progress
+  readout, and times a test page, with a plain verdict ("Usable. About 40 s per page...; a
+  100-page book would take about 67 minutes"). It asks before installing or downloading
+  anything. `local install`, `pull`, `test` and `status` do the steps one at a time.
+- With `--provider ollama`, one page at a time and no rate limit are the defaults.
+
+### Fixed (local models)
+
+- **Ollama cut dense pages short without saying so.** Its default context is 4,096 tokens,
+  and a page image plus a long transcription overflows it. Conversions now use a copy of the
+  model with a 12,288-token context, created automatically (settings only, no new download).
+- **Ollama is reached at 127.0.0.1 instead of localhost**, which on Windows tries IPv6 first
+  and lost seconds on every request.
 
 ### Fixed
 

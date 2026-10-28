@@ -20,7 +20,9 @@ from dataclasses import dataclass, field
 from .base import DailyQuotaExceeded, RateLimited, Reply, Usage, VisionClient
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-OLLAMA_BASE_URL = "http://localhost:11434/v1"
+# 127.0.0.1, not localhost: on Windows localhost tries IPv6 first, and Ollama
+# listens on IPv4 only, which costs seconds per request.
+OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1"
 
 
 @dataclass(frozen=True)
