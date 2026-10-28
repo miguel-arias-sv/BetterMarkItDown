@@ -43,6 +43,10 @@ dev = ["pytest>=8.0", "ruff>=0.5", "python-docx>=1.1"]   # python-docx builds te
 bettermarkitdown = "bettermarkitdown.cli:main"
 bmid = "bettermarkitdown.cli:main"
 
+[project.gui-scripts]
+# A launcher with no console window, for the desktop icon: opens the setup page.
+bettermarkitdown-app = "bettermarkitdown.app:launch"
+
 [project.urls]
 Homepage = "https://github.com/miguel-arias-sv/BetterMarkItDown"
 Issues = "https://github.com/miguel-arias-sv/BetterMarkItDown/issues"
@@ -54,8 +58,8 @@ include = ["bettermarkitdown*"]
 version = { attr = "bettermarkitdown.__version__" }
 
 [tool.setuptools.package-data]
-# The KaTeX renderer that `--verify` runs under Node.js.
-bettermarkitdown = ["*.js"]
+# The KaTeX renderer that `--verify` runs under Node.js, and the setup page's files.
+bettermarkitdown = ["*.js", "app/static/*"]
 
 [tool.ruff]
 line-length = 100

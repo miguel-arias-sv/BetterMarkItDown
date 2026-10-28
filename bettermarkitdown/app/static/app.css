@@ -1,0 +1,149 @@
+/* Plain colours, system font, nothing loaded from elsewhere. */
+:root {
+  --bg: #f6f6f3;
+  --card: #ffffff;
+  --text: #222222;
+  --muted: #5f6368;
+  --line: #d9d9d4;
+  --primary: #1f3a5f;
+  --primary-text: #ffffff;
+  --ok: #1d6b2f;
+  --warn: #8a4b00;
+  --error: #a31515;
+  --focus: #2f6fdb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17191c;
+    --card: #22252a;
+    --text: #e8e8e6;
+    --muted: #a3a8ae;
+    --line: #3a3e44;
+    --primary: #8fb3e8;
+    --primary-text: #10161f;
+    --ok: #7fcf8f;
+    --warn: #f0b35c;
+    --error: #ff8a80;
+    --focus: #8fb3e8;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.brand { font-weight: 700; color: var(--primary); }
+main { max-width: 760px; margin: 0 auto; padding: 0 16px 48px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 24px;
+}
+h1 { font-size: 1.5rem; margin: 0 0 8px; overflow-wrap: anywhere; }
+/* Each screen moves focus to its title for screen readers; no ring is needed there. */
+h1:focus { outline: none; }
+p, li, td, .choice { overflow-wrap: anywhere; }
+h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+.intro { color: var(--muted); margin-top: 0; }
+.explain { color: var(--muted); font-size: 0.95rem; }
+.notice { border-left: 4px solid var(--primary); padding: 4px 0 4px 14px; margin: 16px 0; }
+.warn { color: var(--warn); }
+.ok { color: var(--ok); }
+.error { color: var(--error); }
+.loading { color: var(--muted); }
+
+button {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  padding: 10px 16px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--primary); }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+button.primary { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+button.link { border: none; background: none; color: var(--primary); padding: 6px 8px; }
+button:disabled { opacity: 0.55; cursor: default; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+
+.choices { display: grid; gap: 10px; margin-top: 16px; }
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 14px 16px;
+}
+.choice span { color: var(--muted); font-size: 0.95rem; }
+.choice em { font-style: normal; font-size: 0.8rem; color: var(--ok); font-weight: 600; }
+.choice.recommended { border-color: var(--ok); }
+
+label { display: block; font-weight: 600; margin: 14px 0 6px; }
+input[type="password"], input[type="text"], select {
+  font: inherit;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+}
+ol, ul { padding-left: 22px; }
+li { margin: 4px 0; }
+a { color: var(--primary); }
+
+.options { display: grid; gap: 10px; margin-top: 8px; }
+.option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: normal;
+  margin: 0;
+  cursor: pointer;
+}
+.option.disabled { opacity: 0.55; cursor: default; }
+.option input { margin-top: 4px; }
+.option .name { font-weight: 600; }
+.option .meta, .option .note { grid-column: 2; color: var(--muted); font-size: 0.93rem; }
+
+table.facts { border-collapse: collapse; width: 100%; margin: 8px 0; }
+table.facts th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 12px 6px 0;
+  vertical-align: top; white-space: nowrap; }
+table.facts td { padding: 6px 0; border-bottom: 1px solid var(--line); }
+table.keys td, table.keys th { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--line);
+  text-align: left; vertical-align: middle; }
+table.keys { border-collapse: collapse; width: 100%; }
+
+progress { width: 100%; height: 14px; margin: 12px 0 4px; accent-color: var(--primary); }
+pre {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  font-size: 0.9rem;
+}
+details { margin-top: 12px; }
+summary { cursor: pointer; color: var(--primary); }

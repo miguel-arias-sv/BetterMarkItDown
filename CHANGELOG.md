@@ -50,6 +50,16 @@ setup page and workspace in the browser.
   stood, like PDF figures. DOC and PPT are first saved as DOCX / PPTX by Microsoft Word or
   PowerPoint if installed, else LibreOffice, which keeps their tables intact.
   `--as-pages` sends any of them through PDF instead, page by page.
+- **A setup page in your browser: `bettermarkitdown app`.** It explains why a browser
+  opened and when internet is needed, then asks who will use the tool (you, an AI agent,
+  or both), how much help you want, and whether you have an API key. It saves and checks a
+  key, guides you through getting one, or sets up a model on this computer: computer check,
+  model choice with each model's limits, Ollama install, download with a progress bar, and
+  a speed test. Settings lets you switch provider and model, manage keys, and install
+  LibreOffice for old Word and PowerPoint files. It runs only on this computer; nothing
+  is installed, downloaded or paid for without a click.
+- **Your choices become the defaults** for every run: a flag, then an environment
+  variable, then the setup page's choice, then the built-in default.
 - Local models' limits now say what was measured on graph pages: Qwen3-VL 4B gave a
   textbook chart one line, 8B described it nearly as well as Gemini, and both skipped a
   slide's hand-drawn graphs.

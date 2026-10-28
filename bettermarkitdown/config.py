@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import credentials
+from . import credentials, settings
 from .providers import (
     DEFAULT_PROVIDER,
     GEMINI_BASE_URL,
@@ -42,7 +42,8 @@ def resolve_endpoint(provider: str | None = None,
 
     An explicit --base-url wins, and names its provider unless --provider is also
     given. Then --provider or $BMID_PROVIDER, at that provider's own URL. Then
-    $BMID_BASE_URL. Gemini is the default, as it was before providers existed.
+    $BMID_BASE_URL. Then the provider chosen on the setup page. Gemini is the
+    default, as it was before providers existed.
     """
     load_dotenv()
     provider = provider or os.environ.get("BMID_PROVIDER", "").strip() or None
@@ -57,6 +58,10 @@ def resolve_endpoint(provider: str | None = None,
                              "BMID_BASE_URL.")
         return spec, url
     url = get_base_url()
+    if url == GEMINI_BASE_URL:            # nothing in the environment: the saved choice
+        saved = PROVIDERS.get(settings.load().provider)
+        if saved and saved.base_url:
+            return saved, saved.base_url
     return infer_provider(url), url
 
 # Used when a Gemini model is not in the price table: the current Flash rate.
@@ -88,13 +93,22 @@ def load_dotenv(start: Path | None = None) -> None:
         return
 
 
-def get_model(explicit: str | None = None) -> str:
-    """Resolve the model name. BMID_MODEL lets you set a default per machine."""
+def get_model(explicit: str | None = None, provider: str | None = None) -> str:
+    """Resolve the model name: --model, then $BMID_MODEL, then the model saved on the
+    setup page for this provider, then the provider's default ("" if it has none).
+    Without a provider, Gemini's default, as before providers existed."""
     if explicit:
         return explicit.strip()
     load_dotenv()
     value = os.environ.get("BMID_MODEL", "").strip()
-    return value or DEFAULT_MODEL
+    if value:
+        return value
+    if provider is None:
+        return DEFAULT_MODEL
+    saved = settings.load()
+    if saved.provider == provider and saved.model:
+        return saved.model
+    return get_provider(provider).default_model or ""
 
 
 def find_api_key(provider: str = DEFAULT_PROVIDER) -> tuple[str | None, str]:

@@ -144,7 +144,25 @@ Each provider reads only its own variables (`GEMINI_API_KEY`, `OPENAI_API_KEY`,
 
 ## Use it
 
-### Interactive (recommended the first time)
+### The setup page (start here)
+
+```bash
+bettermarkitdown app
+```
+
+A plain page opens in your browser. It runs only on your computer, not on a website. It asks
+who will use the tool (you, an AI agent, or both), how much help you want, and whether you
+have an API key. Then it saves and checks your key, shows you how to get one, or sets up a
+model on your computer. Every option comes with what it is good at and its limits, and
+nothing is installed, downloaded or paid for without a click. Your choices become the
+defaults for every command afterwards. Run it again any time, or open Settings to switch
+provider or model.
+
+The page's server listens on 127.0.0.1 only and needs the one-time token in the address it
+opens, so other websites and other computers cannot use it. It stops when you press Quit,
+or a while after the tab is closed.
+
+### Interactive, in the terminal
 
 ```bash
 python -m bettermarkitdown

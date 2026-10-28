@@ -3,6 +3,7 @@
 With no arguments at all, `bettermarkitdown` starts the interactive wizard
 instead (see wizard.py). Other commands:
 
+    bettermarkitdown app                         the setup page, in your browser
     bettermarkitdown providers
     bettermarkitdown key set|test|forget|status [PROVIDER]
     bettermarkitdown system | doctor              [--json]
@@ -275,6 +276,9 @@ def main(argv: list[str] | None = None) -> int:
         return key_command(argv[1:])
     if argv[0] in ("system", "doctor"):
         return system_command(argv[0], argv[1:])
+    if argv[0] == "app":
+        from .app import launch
+        return launch(argv[1:])
     if argv[0] == "local":
         from .local.commands import main as local_main
         return local_main(argv[1:])
@@ -344,14 +348,12 @@ def main(argv: list[str] | None = None) -> int:
         print(no_key, file=sys.stderr)
         return 1
 
-    model = get_model(args.model)
-    if not args.model and model == DEFAULT_MODEL and provider.id != "gemini":
-        # No model asked for: use the chosen provider's own default, not Gemini's.
-        if not provider.default_model and not args.no_vision:
-            print(f"{provider.name} has no default model. Pick one with --model "
-                  f"(--list-models --provider {provider.id} lists them).", file=sys.stderr)
-            return 1
-        model = provider.default_model or model
+    model = get_model(args.model, provider.id)
+    if not model and not args.no_vision:
+        print(f"{provider.name} has no default model. Pick one with --model "
+              f"(--list-models --provider {provider.id} lists them).", file=sys.stderr)
+        return 1
+    model = model or DEFAULT_MODEL
     if provider.id == "ollama" and not args.no_vision:
         # Ollama's default context is too small for a page; use the copy with room.
         from .local import ollama
