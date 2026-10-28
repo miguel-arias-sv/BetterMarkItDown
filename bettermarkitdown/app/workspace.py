@@ -161,13 +161,16 @@ def _start_inspect(app, doc: library.Document):
         def progress(done, total):
             job.done, job.total = done, total
 
-        found = library.get(doc.id)
-        if found.kind == ".pdf":
-            found.inspection = library.inspect(found.source(), progress=progress)
-        elif found.kind in formats.NATIVE:
-            found.inspection = {"pictures": _count_pictures(found.source())}
+        if doc.kind == ".pdf":
+            inspection = library.inspect(doc.source(), progress=progress)
+        elif doc.kind in formats.NATIVE:
+            inspection = {"pictures": _count_pictures(doc.source())}
         else:
-            found.inspection = {}
+            inspection = {}
+        # Read again: a run may have finished while this one looked, and saved its own
+        # results, which saving an older copy would undo.
+        found = library.get(doc.id)
+        found.inspection = {**found.inspection, **inspection}
         found.save()
         return {"inspection": found.inspection}
 

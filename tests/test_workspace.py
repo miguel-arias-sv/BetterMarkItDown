@@ -314,3 +314,24 @@ def test_a_refused_request_still_gets_its_answer(app):
                             origin="https://evil.example")
         assert status == 403 and "other sites" in out["error"]
 
+
+
+def test_a_late_inspection_keeps_what_a_run_saved(app, tmp_path, monkeypatch):
+    """A long book is still being looked through when a short run ends; the look must
+    not save its older copy of the document over the run's results."""
+    release = threading.Event()
+    real = library.inspect
+
+    def slow(pdf, **kwargs):
+        release.wait(10)
+        return real(pdf, **kwargs)
+
+    monkeypatch.setattr(library, "inspect", slow)
+    status, out = upload(app, make_pdf(tmp_path / "Lecture 4.pdf"))
+    doc_id = out["document"]["id"]
+    _, job = call(app, "POST", "/api/doc/convert", {"id": doc_id, "text_only": True})
+    assert wait(app, job)["status"] == "done"
+    release.set()
+    assert wait(app, out["job"])["status"] == "done"
+    stored = library.get(doc_id)
+    assert stored.last_run["converted"] == 3 and stored.inspection["pages"] == 3
