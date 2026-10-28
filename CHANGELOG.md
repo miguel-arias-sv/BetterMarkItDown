@@ -28,6 +28,16 @@ setup page and workspace in the browser.
   `key test` checks a key for free by listing the models it can use. Environment variables
   and `.env` still work and take precedence.
 - The cost meter knows OpenAI's GPT-5.4 mini and nano prices as well as Gemini's.
+- **Every provider and listed model says what to expect**: a rough, plain-language note on
+  what it is good at and where it falls short, shown by `providers`, `--list-models` and the
+  wizard. Models not yet tried with this tool say so.
+- **`bettermarkitdown system` reads your computer and suggests a local model.** It shows
+  memory, processor, graphics (with their real memory, which Windows' usual report gets
+  wrong) and free disk space. It suggests Qwen3-VL 2B, 4B or 8B with the reason, warns when
+  pages would run on the processor and be slow, and lists every option with what it is good
+  at and its limits, so you choose. `--json` for scripts.
+- **`bettermarkitdown doctor`** prints one report for a bug report: version, provider, where
+  each key comes from (never the key), optional parts installed, and the system summary.
 
 ### Fixed
 

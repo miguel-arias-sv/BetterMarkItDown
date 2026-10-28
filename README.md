@@ -187,7 +187,7 @@ python -m bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --workers 4 \
     --title "Chapter 3: Simple Regression"
 
 # Against a model on your own machine
-python -m bettermarkitdown book.pdf --base-url http://localhost:11434/v1 --model qwen3-vl:8b
+python -m bettermarkitdown book.pdf --base-url http://localhost:11434/v1 --model qwen3-vl:8b-instruct
 ```
 
 ### As a library
@@ -382,7 +382,7 @@ default model and whether a key is set:
 | `anthropic` | Claude, through Anthropic's SDK (`pip install "bettermarkitdown[anthropic]"`) | `ANTHROPIC_API_KEY` | `claude-opus-5-5` |
 | `kimi` | Moonshot Kimi | `MOONSHOT_API_KEY` | none: choose with `--model` |
 | `openrouter` | OpenRouter: one key, many models | `OPENROUTER_API_KEY` | `qwen/qwen3-vl-8b-instruct` |
-| `ollama` | A model on your own computer | none | `qwen3-vl:8b` |
+| `ollama` | A model on your own computer | none | `qwen3-vl:8b-instruct` |
 | `custom` | Any other OpenAI-compatible server (`--base-url`) | `BMID_API_KEY` | none |
 
 ```bash
@@ -426,14 +426,26 @@ computer, there is no quota, no per-page cost, and no recitation filter.** What 
 is speed and, on the smaller models, accuracy on exactly the hard parts — dense mathematical
 notation, multi-column layout, small print in figures.
 
+**Which model fits your computer?** Ask it; nothing is downloaded:
+
+```bash
+bettermarkitdown system          # memory, graphics, disk, and a suggested model with the reason
+bettermarkitdown system --json   # the same, for scripts
+```
+
+It suggests the largest Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on
+16 GB or a graphics card with 6 GB, 8B on 32 GB or a card with 8 GB or more. It also warns
+when pages would be read by the processor (slow), and lists every size with its limits so
+you can pick a lighter, faster one.
+
 Anything with an OpenAI-compatible server works. [Ollama](https://ollama.com) is the
 shortest path:
 
 ```bash
-ollama pull qwen3-vl:8b
+ollama pull qwen3-vl:8b-instruct
 python -m bettermarkitdown book.pdf \
   --base-url http://localhost:11434/v1 \
-  --model qwen3-vl:8b \
+  --model qwen3-vl:8b-instruct \
   --workers 1 --rpm 0
 ```
 

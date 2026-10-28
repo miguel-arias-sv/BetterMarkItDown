@@ -1,0 +1,25 @@
+{
+  "os": "Windows",
+  "os_version": "10.0.26100",
+  "arch": "AMD64",
+  "ollama": "",
+  "notes": [],
+  "disk_path": "C:\\Users\\someone\\.ollama\\models",
+  "cpu": "AMD Ryzen 5 5600G with Radeon Graphics",
+  "cores": 12,
+  "ram_gb": 16.0,
+  "ram_available_gb": 9.0,
+  "disk_free_gb": 300.0,
+  "gpus": [
+    {
+      "name": "AMD Radeon(TM) Graphics",
+      "vendor": "AMD",
+      "dedicated_gb": 2.0,
+      "shared_gb": 7.0,
+      "integrated": true,
+      "unified": false,
+      "driver": "",
+      "source": "DXGI"
+    }
+  ]
+}

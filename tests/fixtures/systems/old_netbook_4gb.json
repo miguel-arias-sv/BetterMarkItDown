@@ -1,0 +1,25 @@
+{
+  "os": "Windows",
+  "os_version": "10.0.26100",
+  "arch": "AMD64",
+  "ollama": "",
+  "notes": [],
+  "disk_path": "C:\\Users\\someone\\.ollama\\models",
+  "cpu": "Intel(R) Celeron(R) N4020",
+  "cores": 2,
+  "ram_gb": 4.0,
+  "ram_available_gb": 0.9,
+  "disk_free_gb": 20.0,
+  "gpus": [
+    {
+      "name": "Intel(R) UHD Graphics 600",
+      "vendor": "Intel",
+      "dedicated_gb": 0.12,
+      "shared_gb": 1.9,
+      "integrated": true,
+      "unified": false,
+      "driver": "",
+      "source": "DXGI"
+    }
+  ]
+}

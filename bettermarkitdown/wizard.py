@@ -29,7 +29,7 @@ from rich.text import Text
 from . import ocr
 from .config import Options, get_api_key, redact, resolve_endpoint
 from .core import Meter, convert, list_models
-from .providers import Provider, known_price
+from .providers import Provider, known_price, model_note
 
 console = Console()
 
@@ -127,7 +127,8 @@ def _ask_model(provider: Provider, api_key: str | None, base_url: str) -> str:
         for name in models:
             price = known_price(name)
             cost = f"  [dim]${price[0]}/${price[1]} per 1M[/]" if price else ""
-            console.print(f"  [green]-[/] {name}{cost}")
+            note = f"\n      [dim]{model_note(name)}[/]" if model_note(name) else ""
+            console.print(f"  [green]-[/] {name}{cost}{note}")
         return Prompt.ask("Model", default=default)
     return default
 

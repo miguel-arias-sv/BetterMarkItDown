@@ -34,6 +34,9 @@ def test_every_provider_is_complete():
         if spec.models:
             assert spec.prices_checked, f"{spec.id} prices need the date they were checked"
             assert spec.default_model in spec.models, spec.id
+        assert spec.summary, f"{spec.id} needs a one-line summary of what to expect"
+        missing = set(spec.models) - set(spec.model_notes)
+        assert not missing, f"{spec.id}: say what these are good and bad at: {missing}"
 
 
 def test_endpoints_map_back_to_their_provider():

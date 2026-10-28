@@ -1,0 +1,25 @@
+{
+  "os": "Windows",
+  "os_version": "10.0.26100",
+  "arch": "AMD64",
+  "ollama": "",
+  "notes": [],
+  "disk_path": "C:\\Users\\someone\\.ollama\\models",
+  "cpu": "Intel(R) Core(TM) i3-1215U",
+  "cores": 8,
+  "ram_gb": 8.0,
+  "ram_available_gb": 3.1,
+  "disk_free_gb": 120.0,
+  "gpus": [
+    {
+      "name": "Intel(R) UHD Graphics",
+      "vendor": "Intel",
+      "dedicated_gb": 0.12,
+      "shared_gb": 3.9,
+      "integrated": true,
+      "unified": false,
+      "driver": "",
+      "source": "DXGI"
+    }
+  ]
+}

@@ -25,7 +25,7 @@ from .config import (
     resolve_endpoint,
 )
 from .core import Meter, convert, list_models
-from .providers import PROVIDERS, get_provider
+from .providers import PROVIDERS, get_provider, known_price, model_note
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -141,8 +141,19 @@ def print_providers() -> int:
             status = f"key from {source}" if key else "no key"
         model = spec.default_model or "(pick from its list)"
         print(f"{spec.id:<11} {spec.name:<36} {model:<28} {status}")
+        if spec.summary:
+            print(f"{'':<11} {spec.summary}")
     print("\nSave a key: bettermarkitdown key set PROVIDER. Use one: --provider PROVIDER.")
+    print("See a provider's models, prices and limits: --list-models --provider PROVIDER.")
     return 0
+
+
+def describe_model(name: str) -> str:
+    """'name  $in/$out per 1M  - note', for whatever of that we know."""
+    price = known_price(name)
+    note = model_note(name)
+    return (name + (f"  ${price[0]}/${price[1]} per 1M" if price else "")
+            + (f"  - {note}" if note else ""))
 
 
 def key_command(argv: list[str]) -> int:
@@ -208,6 +219,33 @@ def key_command(argv: list[str]) -> int:
     return 0
 
 
+def system_command(name: str, argv: list[str]) -> int:
+    """`system`: this computer and the local model that suits it. `doctor`: that plus
+    keys, provider and optional parts, for a bug report. Both take --json."""
+    import json
+
+    parser = argparse.ArgumentParser(prog=f"bettermarkitdown {name}")
+    parser.add_argument("--json", action="store_true", help="machine-readable output")
+    args = parser.parse_args(argv)
+
+    if name == "doctor":
+        from .doctor import format_report, gather
+        report = gather()
+        print(json.dumps(report, indent=2) if args.json else format_report(report))
+        return 0
+
+    from .local import describe, recommend
+    from .system import detect
+    profile = detect()
+    rec = recommend(profile)
+    if args.json:
+        print(json.dumps({"system": profile.to_dict(), "recommendation": rec.to_dict()},
+                         indent=2))
+    else:
+        print(describe(profile, rec))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     # Piped or redirected on Windows, stdout is cp1252: a PDF named with a curly
@@ -224,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
         return print_providers()
     if argv[0] == "key":
         return key_command(argv[1:])
+    if argv[0] in ("system", "doctor"):
+        return system_command(argv[0], argv[1:])
 
     args = build_parser().parse_args(argv)
     try:
@@ -240,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
             print(no_key, file=sys.stderr)
             return 1
         for name in list_models(api_key, base_url, provider=provider.id):
-            print(name)
+            print(describe_model(name))
         return 0
 
     if not args.pdf:

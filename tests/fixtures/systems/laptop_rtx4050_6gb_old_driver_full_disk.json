@@ -1,0 +1,35 @@
+{
+  "os": "Windows",
+  "os_version": "10.0.26100",
+  "arch": "AMD64",
+  "ollama": "",
+  "notes": [],
+  "disk_path": "C:\\Users\\someone\\.ollama\\models",
+  "cpu": "Intel(R) Core(TM) i7-13620H",
+  "cores": 16,
+  "ram_gb": 16.0,
+  "ram_available_gb": 8.0,
+  "disk_free_gb": 4.0,
+  "gpus": [
+    {
+      "name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+      "vendor": "NVIDIA",
+      "dedicated_gb": 6.0,
+      "shared_gb": 0.0,
+      "integrated": false,
+      "unified": false,
+      "driver": "531.79",
+      "source": "nvidia-smi"
+    },
+    {
+      "name": "Intel(R) UHD Graphics",
+      "vendor": "Intel",
+      "dedicated_gb": 0.12,
+      "shared_gb": 7.8,
+      "integrated": true,
+      "unified": false,
+      "driver": "",
+      "source": "DXGI"
+    }
+  ]
+}

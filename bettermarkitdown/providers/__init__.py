@@ -7,6 +7,10 @@ most services and every local server offer, or Anthropic's own Messages API.
 Prices are USD per 1M tokens, from the provider's own pages, with the date they
 were checked. A model missing from `models` still works; the cost meter just
 reports $0 for it until you pass --price-in / --price-out.
+
+`summary` and `model_notes` are deliberately rough, plain-language expectations
+for a person choosing in a menu: what each is good at and where it falls short.
+They say "untested here" until a model has actually converted pages with this tool.
 """
 
 from __future__ import annotations
@@ -35,6 +39,8 @@ class Provider:
     local: bool = False
     free_tier: bool = False
     pip_extra: str | None = None       # optional dependency this provider needs
+    summary: str = ""                  # one line: what to expect from this provider
+    model_notes: dict[str, str] = field(default_factory=dict)
     # Request quirks for OpenAI-protocol servers; the client also learns them from
     # a server's 400 replies, so these only save a wasted first call.
     token_param: str = "max_tokens"
@@ -65,6 +71,19 @@ PROVIDERS: dict[str, Provider] = {p.id: p for p in (
         },
         prices_checked="2026-09-21",
         free_tier=True,
+        summary="The tool was built and measured on it. Free tier to try; it refuses some "
+                "pages of published books (copyright filter), which go to local OCR.",
+        model_notes={
+            "gemini-3.6-flash": "The measured default: about $0.003 a page, strong on scans, "
+                                "tables and maths.",
+            "gemini-3.8-flash": "Newer Flash at the same price; untested here.",
+            "gemini-3.5-flash": "Twice the price of 3.6 for no gain measured here.",
+            "gemini-3.5-flash-lite": "Cheapest Gemini; expect more slips in dense maths and "
+                                     "small print.",
+            "gemini-3.1-flash-lite": "Cheap and older; fine for clean text, weaker on "
+                                     "notation.",
+            "gemini-2.5-flash": "Older generation; a fallback if a newer model misbehaves.",
+        },
     ),
     Provider(
         id="openai", name="OpenAI (ChatGPT models)", protocol="openai",
@@ -85,6 +104,13 @@ PROVIDERS: dict[str, Provider] = {p.id: p for p in (
             "gpt-5.4-nano": (0.20, 1.25),
         },
         prices_checked="2026-10-27",
+        summary="Widely used, reliable service; untested here, so convert a few pages first.",
+        model_notes={
+            "gpt-5.4-mini": "Balanced; list price close to Gemini Flash, though reasoning "
+                            "tokens can add to it. Untested here.",
+            "gpt-5.4-nano": "Cheapest OpenAI option; expect more mistakes on maths and "
+                            "complex layouts. Untested here.",
+        },
         # GPT-5 models refuse `max_tokens` and any temperature but the default.
         token_param="max_completion_tokens",
         send_temperature=False,
@@ -109,6 +135,15 @@ PROVIDERS: dict[str, Provider] = {p.id: p for p in (
         },
         prices_checked="2026-10-06",
         pip_extra="anthropic",
+        summary="Strong at reading difficult pages; the larger models cost more. Untested "
+                "here, so convert a few pages first.",
+        model_notes={
+            "claude-opus-5-5": "Most capable Claude, for hard pages (dense maths, messy "
+                               "scans); roughly 5-6x Gemini Flash per page. Untested here.",
+            "claude-sonnet-5-5": "Half Opus's price; a sensible middle ground. Untested here.",
+            "claude-haiku-5-5": "The cheapest model in this list; fine for clean text, "
+                                "expect slips on dense notation. Untested here.",
+        },
     ),
     Provider(
         id="kimi", name="Moonshot Kimi", protocol="openai",
@@ -121,6 +156,8 @@ PROVIDERS: dict[str, Provider] = {p.id: p for p in (
             "Keys from the China-mainland platform use https://api.moonshot.cn/v1 instead; "
             "choose 'Custom' for those.",
         ),
+        summary="Pick a vision model from its list; prices unverified, so set "
+                "--price-in / --price-out for a real cost figure.",
         # No default and no prices: Kimi's pricing page did not publish figures we
         # could verify, and its K2 models retire at the end of 2026. Pick a vision
         # model from the live list.
@@ -136,15 +173,21 @@ PROVIDERS: dict[str, Provider] = {p.id: p for p in (
             "Pick a model that accepts images; each model's page lists its price.",
         ),
         default_model="qwen/qwen3-vl-8b-instruct",
+        summary="One key for hundreds of models; quality and data handling vary by model, "
+                "so check each model's page.",
     ),
     Provider(
         id="ollama", name="Ollama (on this computer)", protocol="openai",
-        base_url=OLLAMA_BASE_URL, default_model="qwen3-vl:8b",
+        base_url=OLLAMA_BASE_URL, default_model="qwen3-vl:8b-instruct",
         needs_key=False, local=True,
+        summary="Private, free and unlimited. Slower, and small models make more mistakes "
+                "in maths and complex layouts.",
     ),
     Provider(
         id="custom", name="Other OpenAI-compatible server", protocol="openai",
         base_url=None, key_env=("BMID_API_KEY", "OPENAI_API_KEY"), needs_key=False,
+        summary="LM Studio, llama.cpp, vLLM or any other server that speaks the OpenAI "
+                "protocol; the model must accept images.",
     ),
 )}
 
@@ -180,6 +223,13 @@ def known_price(model: str) -> tuple[float, float] | None:
     return None
 
 
+def model_note(model: str) -> str:
+    for provider in PROVIDERS.values():
+        if model in provider.model_notes:
+            return provider.model_notes[model]
+    return ""
+
+
 def make_client(provider: Provider, api_key: str | None, base_url: str | None = None,
                 timeout: float = 180.0) -> VisionClient:
     """A client for `provider`. `base_url` overrides the provider's own endpoint."""
@@ -205,4 +255,5 @@ __all__ = [
     "DEFAULT_PROVIDER", "GEMINI_BASE_URL", "OLLAMA_BASE_URL", "PROVIDERS",
     "DailyQuotaExceeded", "Provider", "RateLimited", "Reply", "Usage", "VisionClient",
     "as_vision_client", "get_provider", "infer_provider", "known_price", "make_client",
+    "model_note",
 ]
