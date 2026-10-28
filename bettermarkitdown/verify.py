@@ -34,6 +34,11 @@ _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _SPACED_THOUSANDS = re.compile(
     r"(?<![\d.,])\d{1,3}(?:,?[    ]\d{3})+(?![\d,]|\.\d)")
 _LINK_TARGET = re.compile(r"\]\([^)\s]*\)")       # [text](url): the url is not page text
+# What the converter adds itself: its picture of the page or of a figure, and the label
+# over a figure's description. "Page 85 scan" is not on page 85, so none of it may count
+# as the page's words or numbers.
+_OWN_IMAGE = re.compile(r"!\[Page \d+(?: scan|, figure \d+)\]\([^)\n]*\)")
+_OWN_LABEL = re.compile(r"^\*\*(?:Figure|Picture) [\d.]+ - transcribed by [^*\n]*:\*\*$", re.M)
 # Typeset ligatures come out of the text layer as single glyphs (ﬁ, ﬀ) or vanish,
 # so drop the letter pairs from both sides rather than guess which happened.
 _LIGATURES = re.compile(r"ffi|ffl|ff|fi|fl")
@@ -135,6 +140,7 @@ def split_markdown(md: str) -> tuple[str, str]:
     md = _COMMENT.sub(" ", md)
     other = " ".join(_MATH.findall(md))
     prose = _MATH.sub(" ", md)
+    prose = _OWN_LABEL.sub(" ", _OWN_IMAGE.sub(" ", prose))
     prose = _LINK_TARGET.sub("] ", prose)
     prose = _REVIEW_MARK.sub(" ", prose)
     other += " " + " ".join(_QUOTE_LINE.findall(prose))

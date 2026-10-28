@@ -103,6 +103,7 @@ class Document:
     folder: str                # its result folder's name, unique in output_root()
     pages: int = 0             # PDF pages; 0 for Word and PowerPoint
     as_pages: bool = False     # Word / PowerPoint read through a PDF, for page images
+    whole_pages: bool = False  # every page read whole by the AI, not only scanned ones
     inspection: dict = field(default_factory=dict)
     last_run: dict = field(default_factory=dict)
     edited: list[int] = field(default_factory=list)    # pages changed by hand (0: whole file)

@@ -82,6 +82,12 @@ setup page and workspace in the browser.
   - **Take it away:** download the `.md`, or a `.zip` with its pictures, or open the folder.
   - Without an AI service, files convert as text only, for free, and pages with little or
     no text layer are listed.
+  - **"Read every page with the AI (best for maths)"**: a PDF's text layer often garbles
+    formulas, so this sends every page to the model, not only scanned pages and figures. The
+    estimate then counts one request per page, and the file remembers the choice.
+    Measured on the rest of a 1,340-page econometrics textbook with Gemini 3.6 Flash:
+    352 pages for $1.21 in about 10 minutes, three pages at a time; the page's estimate was
+    within 5% of the cost.
 - **"Play while you wait":** during a conversion expected to take more than 2 minutes, a
   small game is offered (never started by itself): a llama hops over stacks of paper,
   ducks under flying staplers and collects loose pages. It plays in a corner of the page,
@@ -95,6 +101,9 @@ setup page and workspace in the browser.
   request before reading what it sent, Windows reset the connection, now and then, instead
   of delivering the refusal. The server now reads the rest of the request first. This was
   the rare failure in the test suite.
+- **`--verify` flagged every page converted with page pictures.** It read the converter's
+  own picture links ("Page 85 scan") and figure labels ("transcribed by ...") as words of
+  the page, which are not in the PDF. They are left out now.
 - **Stopping one run could stop, or restart, another.** The stop signal was shared by every
   conversion in the process; each run now has its own.
 - "Choose a OpenAI model" now reads "Choose a model: OpenAI", and Settings says how to set

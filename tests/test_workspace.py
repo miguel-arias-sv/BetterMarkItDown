@@ -335,3 +335,19 @@ def test_a_late_inspection_keeps_what_a_run_saved(app, tmp_path, monkeypatch):
     assert wait(app, out["job"])["status"] == "done"
     stored = library.get(doc_id)
     assert stored.last_run["converted"] == 3 and stored.inspection["pages"] == 3
+
+
+def test_every_page_can_be_read_whole_by_the_model(app, tmp_path, fake_vision):
+    """A born-digital book's text layer garbles its maths; this sends every page to the
+    model, counts one request per page, and remembers the choice for later runs."""
+    doc = add(app, tmp_path)                       # 2 text pages, 1 scanned
+    _, out = call(app, "GET", f"/api/doc/estimate?id={doc['id']}&whole_pages=1")
+    assert out["calls"] == 3
+    _, job = call(app, "POST", "/api/doc/convert", {"id": doc["id"], "whole_pages": True})
+    job = wait(app, job)
+    assert job["status"] == "done", job["error"]
+    assert len(fake_vision) == 3
+    stored = library.get(doc["id"])
+    assert stored.whole_pages and stored.last_run["whole_pages"]
+    page = (stored.work_dir() / "pages" / "0001.md").read_text(encoding="utf-8")
+    assert "full-page vision" in page

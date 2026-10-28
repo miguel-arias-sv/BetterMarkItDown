@@ -27,6 +27,10 @@ IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".gif": "image/gif", ".webp": "image/webp"}
 PAGE_DPI = 110                     # sharp enough to read beside the editor
 TRY_PAGES = 3                      # "convert a few pages first, to measure the cost"
+# "Read every page with the AI": every page counts as having no text layer, so each is
+# transcribed whole. A born-digital book's text layer often garbles its maths (braces,
+# sub- and superscripts out of order); the model reads the page as it looks.
+EVERY_PAGE = 10 ** 9
 
 
 def _doc(body) -> library.Document:
@@ -105,8 +109,11 @@ def _selection(doc: library.Document, pages: str | None) -> list[int] | None:
     return chosen
 
 
-def _calls(doc: library.Document, chosen: list[int] | None) -> int | None:
+def _calls(doc: library.Document, chosen: list[int] | None,
+           whole_pages: bool = False) -> int | None:
     if doc.paged() and doc.inspection.get("pages"):
+        if whole_pages:
+            return len(chosen) if chosen is not None else doc.inspection["pages"]
         return library.vision_calls(doc.inspection, chosen)
     return doc.inspection.get("pictures")          # Word / PowerPoint: one per picture
 
@@ -124,7 +131,7 @@ def estimate(app, body) -> dict:
         already = (len(chosen) if chosen else total) - len(todo)
     else:
         todo, already = None, 0
-    calls = 0 if body.get("text_only") else _calls(doc, todo)
+    calls = 0 if body.get("text_only") else _calls(doc, todo, bool(body.get("whole_pages")))
     out = {"calls": calls, "pages": len(todo) if todo is not None else 0, "already": already,
            "cost": None, "seconds": None}
     if calls is not None and engine.get("per_call") is not None:
@@ -215,6 +222,7 @@ def convert(app, body) -> dict:
         raise HTTPError(409, "Another file is being converted. Wait for it, or stop it.")
     text_only = bool(body.get("text_only"))
     as_pages = bool(body.get("as_pages")) and doc.kind != ".pdf"
+    whole_pages = bool(body.get("whole_pages")) and not text_only
     pages = str(body.get("pages") or "").strip() or None
     again = bool(body.get("again"))               # this page, asked of the model anew
     if again and not pages:
@@ -248,6 +256,7 @@ def convert(app, body) -> dict:
                        api_key=key, base_url=base_url, provider=provider.id,
                        workers=1 if provider.local else 3, rpm=0 if provider.local else 60,
                        budget_usd=budget, estimate=trial, no_vision=text_only,
+                       min_chars=EVERY_PAGE if whole_pages else Options.min_chars,
                        ocr_fallback=ocr.available(), fresh=again, ask_again=again)
         run = formats.runner_for(opts, as_pages, log=lambda line: setattr(job, "message",
                                                                             line.strip()))
@@ -258,6 +267,8 @@ def convert(app, body) -> dict:
 
         fresh = library.get(doc.id)                # edits may have been saved meanwhile
         fresh.as_pages = as_pages
+        if not text_only:
+            fresh.whole_pages = whole_pages
         if as_pages and not fresh.inspection.get("pages"):
             fresh.inspection = {**fresh.inspection, **library.inspect(opts.pdf)}
         if again:
@@ -269,7 +280,8 @@ def convert(app, body) -> dict:
             "when": time.strftime("%Y-%m-%d %H:%M"), "provider": provider.id,
             # The name the person chose, not Ollama's roomier copy of it.
             "provider_name": provider.name, "model": "" if text_only else model,
-            "text_only": text_only, "converted": result.pages_converted,
+            "text_only": text_only, "whole_pages": whole_pages,
+            "converted": result.pages_converted,
             "selected": result.pages_selected, "total": result.pages_total,
             "unit": result.unit, "failed": result.failed, "ocr": result.pages_ocr,
             "truncated": result.truncated, "cost": round(result.cost, 4),

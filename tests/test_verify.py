@@ -406,3 +406,17 @@ def test_latex_outside_math_and_links_with_spaces_are_caught(bad):
 def test_math_and_well_formed_links_pass(fine):
     from bettermarkitdown.verify import markup_problems
     assert markup_problems(fine) == []
+
+
+def test_the_converters_own_pictures_and_labels_are_not_page_text():
+    """Page 85's scan link says "Page 85 scan"; that is not on page 85, and neither is a
+    figure's "transcribed by" label. They used to flag every page converted with them."""
+    from bettermarkitdown.verify import check_page
+    pdf_text = ("The mean of the sample is 4.3 and its variance is 2.1. A larger sample "
+                "would narrow the interval estimate, other things being equal. ") * 3
+    md = ("\n\n---\n\n## Page 85\n<!-- source: full-page vision transcription -->\n\n"
+          + pdf_text + "\n\n"
+          "![Page 85, figure 1](Book_assets/page_0085_fig_01.png)\n\n"
+          "**Figure 85.1 - transcribed by gemini-3.6-flash:**\n\n> A bar chart.\n\n"
+          "![Page 85 scan](Book%20Name_assets/page_0085.png)")
+    assert check_page(pdf_text, md, 85).status == "ok"

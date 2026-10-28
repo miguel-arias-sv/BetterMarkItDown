@@ -254,7 +254,8 @@ function lastRunSummary(d) {
   if (!r.when) return [];
   const unit = r.unit || "page";
   const out = [];
-  const used = r.text_only ? "as text only, without the AI" : `with ${r.provider_name}, ${r.model}`;
+  const used = r.text_only ? "as text only, without the AI"
+    : `with ${r.provider_name}, ${r.model}${r.whole_pages ? ", every page read whole" : ""}`;
   if (r.stopped === "stopped") {
     out.push(h("p", { class: "warn", text: `Stopped on ${r.when}, with ${r.converted} of ${plural(r.selected, unit)} done. Convert again to continue where it stopped.` }));
   } else if (r.stopped === "budget") {
@@ -316,8 +317,11 @@ function inspectingPanel(job, id) {
   const line = h("p", { class: "explain", role: "status", text: "Looking through the file..." });
   follow(job, (j) => {
     if (j.total) { bar.max = j.total; bar.value = j.done; line.textContent = `Looking through the file: page ${j.done} of ${j.total}.`; }
-  }).then(() => { if (bar.isConnected) replace("doc", id); })
-    .catch((err) => { line.className = "error"; line.textContent = err.message; });
+  }).then(() => {
+    // A job can end before this panel is on the page: wait until it is, then show
+    // the results. Without the wait, a look that ended at once left the page stuck.
+    setTimeout(() => { if (bar.isConnected) replace("doc", id); }, 0);
+  }).catch((err) => { line.className = "error"; line.textContent = err.message; });
   return h("div", {}, bar, line);
 }
 
@@ -333,7 +337,8 @@ screens.doc = async (id) => {
   const intro = [KINDS[d.kind], d.pages ? plural(d.pages, "page") : "", size(d.size), `added ${d.added.slice(0, 10)}`]
     .filter(Boolean).join(" · ");
   const body = [];
-  body.push(data.inspecting ? inspectingPanel(data.inspecting, id) : inspectionFacts(d));
+  const looking = data.inspecting && data.inspecting.status === "running";
+  body.push(looking ? inspectingPanel(data.inspecting, id) : inspectionFacts(d));
 
   if (mine) body.push(runPanel(running, id));
   else body.push(...lastRunSummary(d));
@@ -389,7 +394,9 @@ function convertForm(d, engine, data, running) {
   const update = () => {
     clearTimeout(timer);
     timer = setTimeout(async () => {
-      const query = new URLSearchParams({ id: d.id, pages: pages ? pages.value.trim() : "", text_only: textOnly.checked ? "1" : "" });
+      const query = new URLSearchParams({ id: d.id, pages: pages ? pages.value.trim() : "", text_only: textOnly.checked ? "1" : "",
+                                          whole_pages: whole && whole.checked ? "1" : "" });
+      if (whole) wholeRow.hidden = textOnly.checked;
       try {
         const est = await api(`/api/doc/estimate?${query}`);
         estimateLine.className = "explain";
@@ -406,6 +413,18 @@ function convertForm(d, engine, data, running) {
 
   const textOnly = h("input", { type: "checkbox", id: "textonly", checked: !engine.ready, disabled: !engine.ready, onchange: update });
   nodes.push(h("label", { class: "check" }, textOnly, " Text only, without the AI (free)"));
+
+  // PDFs only: a Word or PowerPoint file read directly has no pages to read whole.
+  let whole = null;
+  let wholeRow = null;
+  if (d.kind === ".pdf" || d.as_pages) {
+    whole = h("input", { type: "checkbox", id: "wholepages", checked: d.whole_pages, onchange: update });
+    wholeRow = h("div", {},
+      h("label", { class: "check" }, whole, " Read every page with the AI (best for maths)"),
+      h("p", { class: "explain", text: "Otherwise only scanned pages and figures go to the AI, and the rest is read from the PDF's text " +
+        "layer, for free. That layer often garbles formulas, so for a maths-heavy book this is worth one request per page." }));
+    nodes.push(wholeRow);
+  }
 
   let pages = null;
   if (d.paged && d.page_count) {
@@ -445,7 +464,8 @@ function convertForm(d, engine, data, running) {
     try {
       const job = await api("/api/doc/convert", {
         id: d.id, pages: pages ? pages.value.trim() : "", text_only: textOnly.checked,
-        as_pages: asPages ? asPages.checked : false, budget_usd: budget ? budget.value.trim() || 0 : 0, ...extra });
+        as_pages: asPages ? asPages.checked : false, whole_pages: whole ? whole.checked : false,
+        budget_usd: budget ? budget.value.trim() || 0 : 0, ...extra });
       watchRun(job);
       replace("doc", d.id);
     } catch (err) {
@@ -578,7 +598,8 @@ screens.review = async (id, pageArg) => {
         (engine.local ? "" : ", and pays for this page again") + ". Go ahead?")) return;
     again.disabled = true;
     try {
-      const job = await api("/api/doc/convert", { id: d.id, pages: String(page), again: current.converted, text_only: !engine.ready });
+      const job = await api("/api/doc/convert", { id: d.id, pages: String(page), again: current.converted,
+                                                  text_only: !engine.ready, whole_pages: d.whole_pages });
       watchRun(job);
       const forPage = page;
       onRun((j) => {
