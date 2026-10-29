@@ -21,6 +21,7 @@ import shutil
 import sys
 import time
 import uuid
+import zipfile
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import BinaryIO
@@ -233,6 +234,46 @@ def _page_count(path: Path, filename: str) -> int:
         raise LibraryError(f"{filename} does not open as a PDF. It may be damaged.") from None
 
 
+def find(source: Path) -> Document | None:
+    """The library's document for this file, if it was added before: same name and size."""
+    size = source.stat().st_size
+    return next((d for d in documents() if d.filename == source.name and d.size == size), None)
+
+
+def add_file(source: Path) -> Document:
+    """`add` for a file on disk, reusing the library's copy when it already has one."""
+    found = find(source)
+    if found:
+        return found
+    with open(source, "rb") as stream:
+        return add(stream, source.name, source.stat().st_size)
+
+
+def converted(doc: Document) -> list[int]:
+    """The pages that have a page file, 1-based."""
+    pages_dir = doc.work_dir() / "pages"
+    return sorted(int(p.stem) for p in pages_dir.glob("[0-9][0-9][0-9][0-9].md")) \
+        if pages_dir.is_dir() else []
+
+
+def check_pages(doc: Document, pdf: Path, pages: list[int] | None = None) -> None:
+    """Run --verify's checks (free, offline) and keep what to look at, per page."""
+    from .verify import add_render_check, page_notes, verify
+
+    done = converted(doc)
+    targets = [p for p in (pages or done) if p in done]
+    if not targets:
+        return
+    results = verify(pdf, doc.work_dir(), [p - 1 for p in targets])
+    add_render_check(results, doc.work_dir())
+    for r in results:
+        notes = page_notes(r)
+        if notes:
+            doc.checks[str(r.page)] = notes
+        else:
+            doc.checks.pop(str(r.page), None)
+
+
 def remove(doc_id: str) -> Document:
     """Take a document out of the library: its copy and its work go. Its result in
     Documents stays, since the person may already be using it."""
@@ -269,6 +310,16 @@ def inspect(pdf: Path, min_chars: int = 120, min_figure_pt: float = 60.0,
         total = doc.page_count
     return {"pages": total, "scanned": scanned, "equations": equations, "figures": figures,
             "outline": outline}
+
+
+def count_pictures(path: Path) -> int | None:
+    """Pictures inside a DOCX or PPTX (a zip), to estimate a run. None if unknown."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return sum(1 for n in z.namelist()
+                       if n.startswith(("word/media/", "ppt/media/")) and not n.endswith("/"))
+    except (OSError, zipfile.BadZipFile):
+        return None
 
 
 def vision_calls(inspection: dict, pages: list[int] | None = None) -> int:

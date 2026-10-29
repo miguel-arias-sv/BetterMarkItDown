@@ -8,29 +8,20 @@ import io
 import os
 import subprocess
 import sys
-import time
 import zipfile
 from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import unquote
 
-from .. import formats, library, ocr, settings
-from ..config import DEFAULT_MODEL, Options, get_api_key, get_model, resolve_endpoint
+from .. import formats, library, ocr, runs
 from ..core import assemble_output, parse_pages
-from ..local import ollama
-from ..providers import known_price
-from ..verify import add_render_check, page_notes, verify
-from .api import PAGE_TOKENS_IN, PAGE_TOKENS_OUT
 from .server import HTTPError, Response, job_json, route
 
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".gif": "image/gif", ".webp": "image/webp"}
 PAGE_DPI = 110                     # sharp enough to read beside the editor
 TRY_PAGES = 3                      # "convert a few pages first, to measure the cost"
-# "Read every page with the AI": every page counts as having no text layer, so each is
-# transcribed whole. A born-digital book's text layer often garbles its maths (braces,
-# sub- and superscripts out of order); the model reads the page as it looks.
-EVERY_PAGE = 10 ** 9
+FIX = "Add one in Settings."
 
 
 def _doc(body) -> library.Document:
@@ -54,15 +45,9 @@ def _page_count(doc: library.Document) -> int:
     return doc.inspection.get("pages", 0) if doc.as_pages else 0
 
 
-def _converted(doc: library.Document) -> list[int]:
-    pages_dir = doc.work_dir() / "pages"
-    return sorted(int(p.stem) for p in pages_dir.glob("[0-9][0-9][0-9][0-9].md")) \
-        if pages_dir.is_dir() else []
-
-
 def _summary(doc: library.Document) -> dict:
     """A document as the page shows it, with what has been done to it so far."""
-    converted = _converted(doc)
+    converted = library.converted(doc)
     return {**asdict(doc), "paged": doc.paged(), "page_count": _page_count(doc),
             "converted": converted, "output": str(doc.output()),
             "output_ready": doc.output().is_file(),
@@ -72,25 +57,7 @@ def _summary(doc: library.Document) -> dict:
 # --- what a run would use --------------------------------------------------------------
 
 def _engine() -> dict:
-    """The AI service a conversion would use now, and whether it is ready. Nothing here
-    goes online: Ollama is started, if need be, when the run begins."""
-    try:
-        provider, _url = resolve_endpoint()
-    except ValueError as exc:
-        return {"ready": False, "problem": str(exc), "name": "", "model": "", "local": False}
-    model = get_model(None, provider.id)
-    problem = ""
-    if provider.needs_key and not get_api_key(provider=provider.id):
-        problem = f"There is no {provider.name} key yet. Add one in Settings."
-    elif not model:
-        problem = f"No {provider.name} model is chosen yet. Choose one in Settings."
-    price = (0.0, 0.0) if provider.local else known_price(model)
-    per_call = (round((PAGE_TOKENS_IN * price[0] + PAGE_TOKENS_OUT * price[1]) / 1e6, 5)
-                if price else None)
-    return {"ready": not problem, "problem": problem, "provider": provider.id,
-            "name": provider.name, "model": model, "local": provider.local,
-            "per_call": per_call,
-            "seconds_per_call": settings.load().speed.get(model) if provider.local else None}
+    return runs.engine(fix=FIX)
 
 
 def _selection(doc: library.Document, pages: str | None) -> list[int] | None:
@@ -125,7 +92,7 @@ def estimate(app, body) -> dict:
     chosen = _selection(doc, str(body.get("pages") or "").strip() or None)
     engine = _engine()
     total = _page_count(doc)
-    done = set(_converted(doc))
+    done = set(library.converted(doc))
     if total:
         todo = [p for p in (chosen or range(1, total + 1)) if p not in done]
         already = (len(chosen) if chosen else total) - len(todo)
@@ -151,16 +118,6 @@ def library_list(app, _body) -> dict:
             "engine": _engine()}
 
 
-def _count_pictures(path: Path) -> int | None:
-    """Pictures inside a DOCX or PPTX (a zip), to estimate a run. None if unknown."""
-    try:
-        with zipfile.ZipFile(path) as z:
-            return sum(1 for n in z.namelist()
-                       if n.startswith(("word/media/", "ppt/media/")) and not n.endswith("/"))
-    except (OSError, zipfile.BadZipFile):
-        return None
-
-
 def _start_inspect(app, doc: library.Document):
     def work(job):
         job.message = "Looking through the file..."
@@ -171,7 +128,7 @@ def _start_inspect(app, doc: library.Document):
         if doc.kind == ".pdf":
             inspection = library.inspect(doc.source(), progress=progress)
         elif doc.kind in formats.NATIVE:
-            inspection = {"pictures": _count_pictures(doc.source())}
+            inspection = {"pictures": library.count_pictures(doc.source())}
         else:
             inspection = {}
         # Read again: a run may have finished while this one looked, and saved its own
@@ -234,34 +191,17 @@ def convert(app, body) -> dict:
     trial = TRY_PAGES if body.get("trial") else 0
     _selection(doc, pages)                         # a bad range fails here, not in the job
 
-    provider, base_url = resolve_endpoint()
-    key = get_api_key(provider=provider.id)
-    model = get_model(None, provider.id)
-    if not text_only:
-        engine = _engine()
-        if not engine["ready"]:
-            raise ValueError(engine["problem"])
-    prior = settings.load().speed.get(model) if provider.local else None
+    plan = runs.plan(text_only, fix=FIX)
 
     def work(job):
-        name = model
-        if provider.id == "ollama" and not text_only:
-            job.message = "Starting Ollama..."
-            if not ollama.ensure_running():
-                raise RuntimeError("Ollama did not start. Open it from the Start menu, then "
-                                   "try again.")
-            name = ollama.with_context(model)
-        opts = Options(pdf=doc.source(), output=doc.output(), work_dir=doc.work_dir(),
-                       pages=pages, title=doc.name, model=name or DEFAULT_MODEL,
-                       api_key=key, base_url=base_url, provider=provider.id,
-                       workers=1 if provider.local else 3, rpm=0 if provider.local else 60,
-                       budget_usd=budget, estimate=trial, no_vision=text_only,
-                       min_chars=EVERY_PAGE if whole_pages else Options.min_chars,
-                       ocr_fallback=ocr.available(), fresh=again, ask_again=again)
+        opts = runs.options(plan, source=doc.source(), output=doc.output(),
+                            work_dir=doc.work_dir(), pages=pages, title=doc.name,
+                            whole_pages=whole_pages, budget_usd=budget, trial=trial,
+                            again=again, say=lambda m: setattr(job, "message", m))
         run = formats.runner_for(opts, as_pages, log=lambda line: setattr(job, "message",
                                                                             line.strip()))
         pictures = doc.kind != ".pdf" and not as_pages
-        progress = _Progress(job, prior, "picture" if pictures else "page")
+        progress = runs.Progress(job, plan.prior_seconds, "picture" if pictures else "page")
         job.message = ""
         result = run(opts, progress.event, abort=job.abort)
 
@@ -273,25 +213,14 @@ def convert(app, body) -> dict:
             fresh.inspection = {**fresh.inspection, **library.inspect(opts.pdf)}
         if again:
             fresh.edited = [p for p in fresh.edited if str(p) != pages]
-        reason = result.stopped_reason
-        if job.abort.is_set() and reason not in ("budget", "DailyQuotaExceeded"):
-            reason = "stopped"                     # the Stop button
         fresh.last_run = {
-            "when": time.strftime("%Y-%m-%d %H:%M"), "provider": provider.id,
-            # The name the person chose, not Ollama's roomier copy of it.
-            "provider_name": provider.name, "model": "" if text_only else model,
-            "text_only": text_only, "whole_pages": whole_pages,
-            "converted": result.pages_converted,
-            "selected": result.pages_selected, "total": result.pages_total,
-            "unit": result.unit, "failed": result.failed, "ocr": result.pages_ocr,
-            "truncated": result.truncated, "cost": round(result.cost, 4),
-            "stopped": reason, "trial": bool(trial),
+            **runs.summary(result, plan, progress, aborted=job.abort.is_set(),
+                           whole_pages=whole_pages, trial=bool(trial)),
             # Pages with (almost) no text layer, read without the AI: empty, or nearly.
             "empty": sorted(set(fresh.inspection.get("scanned", [])) & set(progress.pages))
-            if text_only else [],
-            "seconds": round(time.monotonic() - progress.started)}
+            if text_only else []}
         if fresh.paged():
-            _check_pages(fresh, opts.pdf)
+            library.check_pages(fresh, opts.pdf)
         fresh.save()
         return {"document": _summary(fresh)}
 
@@ -299,47 +228,6 @@ def convert(app, body) -> dict:
     job.info["doc"] = doc.id
     job.info["name"] = doc.name
     return job_json(job)
-
-
-class _Progress:
-    """Turns the engine's events into the job's progress: pages done, the page being
-    read, money spent, and the time left, measured from this run's own pages."""
-
-    def __init__(self, job, prior_seconds: float | None, unit: str):
-        self.job, self.prior = job, prior_seconds
-        self.started = time.monotonic()
-        self.now_done = 0
-        self.todo = 0
-        self.reading: set[int] = set()
-        self.pages: list[int] = []               # written by this run
-        job.info.update(reading=[], failed=[], cost=0.0, eta=None, per_page=None, unit=unit,
-                        todo=0)
-
-    def event(self, name: str, p: dict) -> None:
-        job, info = self.job, self.job.info
-        if name == "start":
-            job.total, job.done, self.todo = p["selected"], p["done"], p["todo"]
-            info["todo"] = p["todo"]
-        elif name == "page_start":
-            self.reading.add(p["page"])
-        elif name in ("page_done", "image_done"):
-            self.reading.discard(p.get("page", 0))
-            if "page" in p:
-                self.pages.append(p["page"])
-            self.now_done += 1
-            job.done = p["done"]
-            info["cost"] = p.get("cost", 0.0)
-        elif name == "page_failed":
-            self.reading.discard(p["page"])
-            self.now_done += 1
-            info["failed"] = [*info["failed"], p["page"]]
-        info["reading"] = sorted(self.reading)
-        left = max(0, self.todo - self.now_done)
-        if self.now_done:
-            per_page = (time.monotonic() - self.started) / self.now_done
-            info["per_page"], info["eta"] = round(per_page, 1), round(left * per_page)
-        elif self.prior:
-            info["eta"] = round(left * self.prior)
 
 
 def stop(app, body) -> dict:
@@ -350,22 +238,6 @@ def stop(app, body) -> dict:
     job.info["stopping"] = True
     job.message = "Stopping after the page being read. Finished pages are kept."
     return job_json(job)
-
-
-def _check_pages(doc: library.Document, pdf: Path, pages: list[int] | None = None) -> None:
-    """Run --verify's checks (free, offline) and keep what to look at, per page."""
-    done = [int(p.stem) for p in (doc.work_dir() / "pages").glob("[0-9][0-9][0-9][0-9].md")]
-    targets = [p for p in (pages or done) if p in done]
-    if not targets:
-        return
-    results = verify(pdf, doc.work_dir(), [p - 1 for p in targets])
-    add_render_check(results, doc.work_dir())
-    for r in results:
-        notes = page_notes(r)
-        if notes:
-            doc.checks[str(r.page)] = notes
-        else:
-            doc.checks.pop(str(r.page), None)
 
 
 # --- review and edit ---------------------------------------------------------------
@@ -415,7 +287,7 @@ def page_save(app, body) -> dict:
         assemble_output(doc.output(), doc.work_dir() / "pages", title=doc.name,
                         source_name=doc.source().name,
                         model=doc.last_run.get("model") or "text only")
-        _check_pages(doc, doc.page_pdf() or doc.source(), [page])
+        library.check_pages(doc, doc.page_pdf() or doc.source(), [page])
     doc.save()
     return {"saved": True, "notes": doc.checks.get(str(page), []), "edited": doc.edited}
 

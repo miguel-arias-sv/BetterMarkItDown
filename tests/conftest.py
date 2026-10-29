@@ -38,6 +38,8 @@ def isolated_keys(monkeypatch, tmp_path_factory):
     # The workspace's library and its results: never the real app-data or Documents.
     monkeypatch.setenv("BMID_LIBRARY_DIR", str(tmp_path_factory.mktemp("library")))
     monkeypatch.setenv("BMID_OUTPUT_DIR", str(tmp_path_factory.mktemp("documents")))
+    # Agents' skill folders (~/.claude/skills, ~/.agents/skills...): a temporary home.
+    monkeypatch.setenv("BMID_HOME", str(tmp_path_factory.mktemp("home")))
     names = {name for spec in PROVIDERS.values() for name in spec.key_env}
     for name in names | {"BMID_PROVIDER", "BMID_BASE_URL", "OPENAI_BASE_URL", "BMID_MODEL"}:
         monkeypatch.delenv(name, raising=False)

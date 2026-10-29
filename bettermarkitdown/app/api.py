@@ -12,12 +12,9 @@ from ..config import find_api_key, get_model, redact, resolve_endpoint
 from ..core import list_models
 from ..local import CATALOG, describe, ollama, recommend
 from ..providers import PROVIDERS, get_provider
+from ..runs import PAGE_TOKENS_IN, PAGE_TOKENS_OUT
 from ..system import detect
 from .server import HTTPError, job_json
-
-# Rough tokens for one page, to show a price per page next to each model: a page
-# image plus the prompt in, a transcription out. Real pages vary a lot.
-PAGE_TOKENS_IN, PAGE_TOKENS_OUT = 1500, 600
 
 
 def _provider_json(spec) -> dict:
@@ -197,6 +194,26 @@ def job(app, body) -> dict:
     return job_json(found)
 
 
+def agents(app, _body) -> dict:
+    """The AI agents on this computer, whether the skill is in each, and how to register
+    the MCP server with them."""
+    from .. import agent
+    return {**agent.status(), "mcp_instructions": agent.mcp_instructions()}
+
+
+def agents_install(app, body) -> dict:
+    """Install (or remove) the skill for the agents the person clicked: the click is the
+    yes. Only folders this tool made are ever replaced or removed."""
+    from .. import agent
+    chosen = [str(a) for a in body.get("agents") or []]
+    unknown = [a for a in chosen if a not in agent.AGENTS]
+    if not chosen or unknown:
+        raise ValueError("Choose which agents: " + ", ".join(agent.AGENTS) + ".")
+    if body.get("remove"):
+        return {"results": agent.uninstall(chosen)}
+    return {"results": agent.install(chosen)}
+
+
 def quit_app(app, _body) -> dict:
     app.stop()
     return {"ok": True}
@@ -215,5 +232,7 @@ ROUTES = {
     ("POST", "/api/local/pull"): local_pull,
     ("POST", "/api/local/test"): local_test,
     ("POST", "/api/office/install"): office_install,
+    ("GET", "/api/agents"): agents,
+    ("POST", "/api/agents/install"): agents_install,
     ("POST", "/api/quit"): quit_app,
 }

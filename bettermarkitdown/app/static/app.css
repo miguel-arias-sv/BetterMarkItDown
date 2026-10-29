@@ -351,3 +351,6 @@ select.to-check { width: auto; padding: 8px 10px; }
 /* A pop-out window cannot go full screen or pop out again: only Close is left. */
 .game.popped .game-tools button:not(:last-child) { display: none; }
 body.game-pip { margin: 0; background: var(--card); }
+
+h3 { font-size: 1rem; margin: 16px 0 4px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }

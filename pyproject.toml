@@ -60,7 +60,9 @@ version = { attr = "bettermarkitdown.__version__" }
 [tool.setuptools.package-data]
 # The KaTeX renderer that `--verify` runs under Node.js, and the setup page's files with
 # the preview's libraries and fonts (marked, DOMPurify, KaTeX), so it works offline.
-bettermarkitdown = ["*.js", "app/static/*", "app/static/vendor/*", "app/static/vendor/fonts/*"]
+# The agent skill too.
+bettermarkitdown = ["*.js", "app/static/*", "app/static/vendor/*", "app/static/vendor/fonts/*",
+                    "agent/skill/*"]
 
 [tool.ruff]
 line-length = 100

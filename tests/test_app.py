@@ -157,3 +157,19 @@ def test_quit_stops_the_server(app):
     assert call(app, "POST", "/api/quit", {})[0] == 200
     app.thread.join(5)
     assert not app.thread.is_alive()
+
+
+def test_the_page_installs_the_skill_only_for_the_agent_clicked(app, monkeypatch):
+    from bettermarkitdown import agent
+
+    monkeypatch.setattr(agent.shutil, "which", lambda name: "x" if name == "claude" else None)
+    _, out = call(app, "GET", "/api/agents")
+    claude = next(a for a in out["agents"] if a["id"] == "claude")
+    assert claude["detected"] and "claude mcp add" in out["mcp_instructions"]["claude"]
+    status, out = call(app, "POST", "/api/agents/install", {"agents": ["claude"]})
+    assert status == 200 and out["results"][0]["result"] == "installed"
+    assert (agent.home() / ".claude/skills/bettermarkitdown/SKILL.md").is_file()
+    assert not (agent.home() / ".agents").exists()
+    assert call(app, "POST", "/api/agents/install", {"agents": ["nope"]})[0] == 400
+    status, out = call(app, "POST", "/api/agents/install", {"agents": ["claude"], "remove": True})
+    assert out["results"][0]["result"] == "removed"

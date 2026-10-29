@@ -94,6 +94,29 @@ setup page and workspace in the browser.
   full screen, or popped out above other windows in Chrome and Edge, with the progress bar
   on top, and says when your file is ready. Settings can turn the offer off.
 - The speed test's result is remembered, for the workspace's time estimates.
+- **Agent mode: AI agents can use BetterMarkItDown on their own.**
+  - **`--json`** on a conversion, `--verify`, `--toc`, `--list-models` and `providers`:
+    one JSON object per line (progress events, then a summary, or an error), and nothing
+    else on standard output. Exit codes: 0 done, 1 error, 2 stopped early (spending cap or
+    daily quota), 3 `--verify` flagged pages, 130 interrupted.
+  - **`bettermarkitdown inspect FILE`**: the free look the setup page gives, with an
+    estimate of requests, cost and time, before anything is spent.
+  - **`bettermarkitdown setup`**: choose the AI service and model, and save a key read from
+    standard input (never from the command line), without the setup page. With no options
+    it says whether a conversion is ready and what is missing.
+  - **`--every-page`** reads every page whole with the AI (best for maths), as on the
+    setup page; **`--library`** converts the file in the setup page's library, so the person
+    can review and edit an agent's result there.
+  - **A skill** in the open Agent Skills format (`SKILL.md`), written for any agent: look
+    first, ask before spending, convert, check against the PDF, fix pages, report.
+    `bettermarkitdown agent install` copies it to where Claude Code, Codex, Gemini CLI and
+    Antigravity look for skills (one copy serves Codex and Gemini CLI), after a yes;
+    `agent status` and `agent uninstall` too. It never replaces a skill it did not write.
+    The setup page offers the same, one button per agent found.
+  - **An MCP server**, `bettermarkitdown mcp` (stdio, no extra install): the same steps as
+    tools, with conversions running in the background (`convert`, `job_status`, `stop`),
+    and documents either on disk or in the setup page's library. `bettermarkitdown agent
+    mcp` prints how to register it with each agent.
 
 ### Fixed (setup page)
 

@@ -481,12 +481,7 @@ screens.done = async () => {
       explain("From a terminal, the same conversion is:"),
       automatic() ? null : commandLine(),
     ] : null,
-    agent ? [
-      h("h2", { text: "For your AI agent" }),
-      h("p", { text: "Agents use the same command. They can check the setup with:" }),
-      h("pre", { text: "bettermarkitdown doctor" }),
-      h("p", { class: "explain", text: "A ready-made skill for Claude Code, Codex and Gemini CLI comes in a later update." }),
-    ] : null,
+    agent ? [h("h2", { text: "For your AI agent" }), await agentPanel()] : null,
     h("div", { class: "actions" },
       h("button", { type: "button", onclick: () => show("settings") }, "Settings"),
       h("button", { type: "button", onclick: quit }, "Quit")));
@@ -533,6 +528,8 @@ screens.settings = async () => {
     [["assisted", "Assisted: explain each choice"], ["automatic", "Automatic: recommended choices, ask before installing or spending"]]
       .map(([v, label]) => h("option", { value: v, selected: S.state.settings.help_level === v }, label)));
 
+  const agentsPart = S.state.settings.audience === "human" ? null
+    : [h("h2", { text: "AI agents" }), await agentPanel()];
   const game = h("input", { type: "checkbox", id: "game", checked: S.state.settings.offer_game,
     onchange: async () => { await save({ offer_game: game.checked }); } });
 
@@ -543,12 +540,57 @@ screens.settings = async () => {
     h("p", { text: officeLine }), installOffice, officeStatus,
     h("h2", { text: "Help" }),
     h("label", { for: "help", text: "How much help the setup gives" }), help,
+    agentsPart,
     h("h2", { text: "While you wait" }),
     h("label", { class: "check" }, game, " Offer a small game during conversions longer than 2 minutes"),
     h("div", { class: "actions" },
       h("button", { type: "button", onclick: () => show("audience") }, "Run setup again"),
       backButton()));
 };
+
+// The skill that teaches AI agents to use this tool: where each agent on this computer
+// looks for it, an install button for each (the click is the yes), and how to register
+// the MCP server, which is optional.
+async function agentPanel() {
+  const data = await api("/api/agents");
+  const status = h("p", { role: "status" });
+  const rows = data.agents.map((a) => {
+    const installed = a.folders.some((f) => f.installed);
+    const foreign = a.folders.some((f) => f.installed === "");
+    const button = h("button", { type: "button", class: "link" },
+      installed ? "Update the skill" : "Install the skill");
+    const state = h("td", { text: a.detected ? (installed ? "found, skill installed" : "found on this computer")
+                                             : installed ? "skill installed" : "not found" });
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        const out = await api("/api/agents/install", { agents: [a.id] });
+        const skipped = out.results.find((r) => r.result === "skipped");
+        status.className = skipped ? "warn" : "ok";
+        if (!skipped) { state.textContent = a.detected ? "found, skill installed" : "skill installed"; button.textContent = "Update the skill"; }
+        status.textContent = skipped ? `${a.name}: ${skipped.why}.`
+          : `${a.name}: ${out.results.map((r) => `${r.result} in ${r.folder}`).join("; ")}. Restart it to pick it up.`;
+      } catch (err) { status.className = "error"; status.textContent = err.message; }
+      button.disabled = false;
+    });
+    return h("tr", {},
+      h("td", {}, h("strong", { text: a.name })),
+      state,
+      h("td", {}, foreign ? h("span", { class: "warn", text: "another skill has this name" })
+                          : a.detected || installed ? button : null));
+  });
+  const mcp = h("details", {},
+    h("summary", { text: "Also give agents tools directly (MCP, optional)" }),
+    h("p", { class: "explain", text: "Agents that speak the Model Context Protocol can call BetterMarkItDown as " +
+      "tools instead of commands. Register it once, with the command shown for your agent:" }),
+    data.agents.map((a) => [h("h3", { text: a.name }), h("pre", { text: data.mcp_instructions[a.id] })]));
+  return h("div", {},
+    h("p", { text: "A skill is a short guide an AI agent reads to use this tool well: look first, ask " +
+      "before spending, check the result against the PDF. It is copied into the folder each agent reads." }),
+    h("table", { class: "keys" }, rows), status,
+    h("p", { class: "explain", text: "Agents can check the setup with: bettermarkitdown setup --json" }),
+    mcp);
+}
 
 async function quit() {
   try { await api("/api/quit", {}); } catch (_) { /* already stopping */ }
