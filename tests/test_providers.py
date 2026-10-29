@@ -314,3 +314,15 @@ def test_cli_without_a_key_names_the_command_that_fixes_it(capsys, no_dotenv, tm
     pdf.write_bytes(b"%PDF-1.4")
     assert main([str(pdf), "--provider", "openai"]) == 1
     assert "bettermarkitdown key set openai" in capsys.readouterr().err
+
+
+def test_forget_all_removes_every_saved_key_and_only_those(isolated_keys, capsys):
+    from bettermarkitdown import cli, credentials
+
+    credentials.store_key("openai", "sk-proj-abcdefghijklmnop")
+    credentials.store_key("gemini", "AIzaSyabcdefghijklmnop")
+    assert cli.main(["key", "forget", "all"]) == 0
+    assert isolated_keys.saved == {}
+    assert "Google Gemini" in capsys.readouterr().out
+    assert cli.main(["key", "forget", "all"]) == 0
+    assert "No keys were saved" in capsys.readouterr().out

@@ -84,7 +84,24 @@ Charts become data you can reason about, not just alt text:
 
 ## Install
 
-**From a release (recommended).** One command installs a fixed, tested version and its
+**On Windows, with the installer (easiest).** Download `BetterMarkItDown-Setup-<version>.exe`
+from the [latest release](https://github.com/miguel-arias-sv/BetterMarkItDown/releases/latest)
+and double-click it. No Python, no administrator rights: it installs for you alone, in
+`%LOCALAPPDATA%\Programs\BetterMarkItDown`, with its own copy of Python (it downloads about
+500 MB during setup, so it needs internet then). It adds a Start-menu entry and, if you
+like, a desktop icon, both of which open the setup page; and it can put the
+`bettermarkitdown` command on your PATH, for terminals and AI agents.
+
+- **"Windows protected your PC"?** The installer is not code-signed yet (an application to a
+  free signing service for open-source projects is planned), so Windows SmartScreen does not
+  know it. Click **More info**, then **Run anyway**. Only do that for the file from this
+  project's releases page.
+- **Uninstall** from Settings > Apps > Installed apps > BetterMarkItDown. It removes the
+  program and its Python, and asks whether to delete your library, settings and saved keys
+  too. Your converted files in `Documents\BetterMarkItDown` are never removed.
+- **Upgrade** by running a newer installer over the old one.
+
+**With pip, from a release.** One command installs a fixed, tested version and its
 dependencies, including the local OCR fallback:
 
 ```bash

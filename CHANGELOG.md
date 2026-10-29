@@ -94,6 +94,15 @@ setup page and workspace in the browser.
   full screen, or popped out above other windows in Chrome and Edge, with the progress bar
   on top, and says when your file is ready. Settings can turn the offer off.
 - The speed test's result is remembered, for the workspace's time estimates.
+- **A Windows installer**, `BetterMarkItDown-Setup-<version>.exe`, attached to each release.
+  No Python and no administrator rights needed: it installs for the person alone, gives the
+  program its own Python with uv, and adds a Start-menu entry (and, if wanted, a desktop
+  icon and the `bettermarkitdown` command on the PATH). Local OCR and Claude support are
+  options. Uninstalling removes the program and asks before deleting the library, settings
+  and saved keys; converted files in Documents are never touched. Not code-signed yet, so
+  Windows SmartScreen warns about it (the README says what to do). An icon, too: the setup
+  page game's llama on a page.
+- `bettermarkitdown key forget all` removes every saved key.
 - **Study notes for pages the model refuses to transcribe.** Gemini declines some pages of
   published books (its recitation filter), which used to go straight to local OCR, word for
   word and with unreliable maths. The tool now asks for study notes on the page instead, in

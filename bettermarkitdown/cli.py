@@ -241,10 +241,24 @@ def key_command(argv: list[str]) -> int:
                                      description="Manage API keys in this computer's "
                                                  "password store.")
     parser.add_argument("action", choices=["set", "test", "forget", "status"])
-    parser.add_argument("provider", nargs="?", choices=list(PROVIDERS))
+    parser.add_argument("provider", nargs="?", choices=[*PROVIDERS, "all"],
+                        help="a provider; `forget all` removes every saved key (the "
+                             "uninstaller uses it when asked to delete your data)")
     parser.add_argument("--stdin", action="store_true",
                         help="read the key from standard input instead of a hidden prompt")
     args = parser.parse_args(argv)
+
+    if args.action == "forget" and args.provider == "all":
+        try:
+            removed = [s.name for s in PROVIDERS.values() if credentials.forget_key(s.id)]
+        except credentials.KeyStoreUnavailable as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"Removed the saved keys for: {', '.join(removed)}." if removed
+              else "No keys were saved.")
+        return 0
+    if args.provider == "all":
+        parser.error("'all' works with forget only")
 
     if args.action == "status":
         for spec in PROVIDERS.values():

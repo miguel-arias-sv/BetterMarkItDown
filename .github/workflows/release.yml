@@ -53,3 +53,60 @@ jobs:
             --title "BetterMarkItDown ${GITHUB_REF_NAME}" \
             --notes-file notes.md \
             --verify-tag
+
+  installer:
+    # The Windows installer: built, installed and uninstalled on a clean machine, then
+    # attached to the release (or kept as a workflow artifact on a dry run).
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Build the installer
+        run: |
+          python -m pip install --upgrade pip pillow
+          python installer/build.py
+
+      - name: Install it, try it, uninstall it
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist -Filter "BetterMarkItDown-Setup-*.exe" | Select-Object -First 1
+          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS="addtopath,ocr"','/LOG=setup.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content setup.log -Tail 40; exit 1 }
+          $app = "$env:LOCALAPPDATA\Programs\BetterMarkItDown"
+          Get-Content "$app\install.log" -Tail 5
+          & "$app\bin\bettermarkitdown.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & "$app\bin\bettermarkitdown.exe" doctor
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if (-not (($path -split ';') -contains "$app\bin")) { Write-Error "bin is not on the PATH"; exit 1 }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\BetterMarkItDown.lnk")) { Write-Error "no Start-menu entry"; exit 1 }
+          $u = Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep -Seconds 5
+          $path = (Get-ItemProperty HKCU:\Environment).Path
+          if (($path -split ';') -contains "$app\bin") { Write-Error "uninstall left bin on the PATH"; exit 1 }
+          if (Test-Path "$app\bin") { Write-Error "uninstall left the program behind"; exit 1 }
+          "installed, ran and uninstalled cleanly"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/BetterMarkItDown-Setup-*.exe
+
+      - name: Attach it to the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release upload "$env:GITHUB_REF_NAME" (Get-ChildItem dist -Filter "BetterMarkItDown-Setup-*.exe").FullName
