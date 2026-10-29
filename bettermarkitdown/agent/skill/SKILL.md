@@ -123,9 +123,12 @@ what you fixed, the total cost, and where the output is. Never report success be
 Online models sometimes refuse a page of a published book (Gemini's recitation filter). Do
 not work around it: no splitting the page into pieces, no rewording to disguise the request,
 and do not transcribe the page yourself instead: that produces the very text the model
-declined to. The tool falls back to local OCR on the person's own file; such pages are
-listed in the summary, their layout is flattened and their maths unreliable. Tell the person
-which pages they are, so they can read those in the original.
+declined to. The tool handles it: it asks for study notes on the page in the model's own
+words, checks them and labels them "Study notes, not the book's text" (listed as
+`pages_notes` in the summary); if that fails, it falls back to local OCR (`pages_ocr`:
+layout flattened, maths unreliable). Tell the person which pages they are, so they can read
+those in the original when the exact wording matters. Do not edit study notes towards the
+book's wording.
 
 ## Without the command line: MCP
 

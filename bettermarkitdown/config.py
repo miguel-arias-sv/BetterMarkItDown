@@ -180,6 +180,9 @@ class Options:
     no_vision: bool = False
     save_images: bool = True
     ocr_fallback: bool = True
+    # A page the model refuses to transcribe (recitation filter) gets checked study notes
+    # in the model's own words instead (notes.py); local OCR only if those fail too.
+    study_notes: bool = True
     fresh: bool = False
     # Ask the model again instead of reusing its cached answer ("transcribe this page
     # again" on the setup page). Pays for every page it redoes.
@@ -227,6 +230,7 @@ class Result:
     failed: list[int] = field(default_factory=list)
     truncated: list[int] = field(default_factory=list)   # cut off at the output-token cap
     pages_small_images: list[int] = field(default_factory=list)  # images below figure size
+    pages_notes: list[int] = field(default_factory=list)  # refused pages given study notes
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0

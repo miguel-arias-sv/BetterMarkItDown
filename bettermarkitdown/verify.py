@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .core import TRUNCATED_TAG
+from .notes import SOURCE_TAG as _NOTES_SOURCE
 
 _WORD = re.compile(r"[A-Za-z]+")
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
@@ -105,6 +106,7 @@ class PageCheck:
     # Table words with no match in the text layer, on a page holding an image: the
     # table is most likely that image. Listed, but they do not flag the page.
     from_image: Counter = field(default_factory=Counter)
+    notes: bool = False              # study notes on a refused page, not its text
 
     @property
     def flagged(self) -> bool:
@@ -338,6 +340,10 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     truncated = TRUNCATED_TAG in md
     math = math_problems(md)
     markup = markup_problems(md)
+    if _NOTES_SOURCE in md:
+        # Notes are in other words by design: comparing words would flag them all.
+        return PageCheck(page, len(_words(pdf_text)), status="notes", notes=True, math=math,
+                         markup=markup)
     prose, other = split_markdown(md)
     md_words = Counter(_words(prose))
     raw = _words(pdf_text)
@@ -456,8 +462,12 @@ def page_notes(r: PageCheck, limit: int = 12) -> list[str]:
         notes.append("Cut off: the model reached its output limit, so the end of the page "
                      "is missing. Finish it from the page image.")
     if r.ocr:
-        notes.append("Read by the local OCR fallback: the words may be right, but maths and "
-                     "layout are unreliable. Retype it from the page image.")
+        notes.append("Read by the local OCR fallback, because the model refused this page: "
+                     "the words may be right, but maths and layout are unreliable. Read this "
+                     "page in the original.")
+    if r.notes:
+        notes.append("Study notes, not the page's text: the model refused to transcribe this "
+                     "page. For exact wording and figures, read it in the original.")
     notes += [f"Broken maths: {problem}." for problem in r.math]
     notes += [f"Markup: {problem}." for problem in r.markup]
     return notes
@@ -484,7 +494,10 @@ def format_report(results: list[PageCheck], limit: int = 20,
                          "the rest of the page is missing. Finish it from the PDF.")
         if r.ocr:
             lines.append(f"page {r.page}: still local-OCR text -- the words may match, but "
-                         "math and layout are unreliable. Retype it from the page image.")
+                         "math and layout are unreliable. Read this page in the original.")
+        if r.notes:
+            lines.append(f"page {r.page}: study notes, not the page's text (the model "
+                         "refused it) -- read it in the original for exact wording.")
         if r.math:
             lines.append(f"page {r.page}: broken math -- {'; '.join(r.math)}")
         for problem in r.markup:
@@ -495,9 +508,11 @@ def format_report(results: list[PageCheck], limit: int = 20,
     n_ocr = sum(r.ocr for r in results)
     n_math = sum(bool(r.math) for r in results)
     n_cut = sum(r.truncated for r in results)
+    n_notes = sum(r.notes for r in results)
     lines.append(f"\n{counts['ok']} page(s) match the text layer, {counts['flagged']} flagged, "
                  f"{n_ocr} still OCR, {n_math} with broken math, {n_markup} with markup "
                  f"problems, {n_cut} cut off, "
+                 f"{n_notes} study-notes pages, "
                  f"{counts['no-text-layer']} without a text layer (check those by eye), "
                  f"{counts['no-page-file']} not converted yet.")
     if no_layer:

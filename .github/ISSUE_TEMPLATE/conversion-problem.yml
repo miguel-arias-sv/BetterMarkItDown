@@ -1,0 +1,73 @@
+name: Conversion problem
+description: A page came out wrong, incomplete or missing, or study notes left something out.
+labels: ["conversion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Please do not paste a book's text or attach a copyrighted
+        file.** Describe the problem in your own words, with page numbers, and attach only a
+        document you wrote yourself or one that is free to share (a public-domain or
+        openly licensed text), if one shows the same problem.
+  - type: input
+    id: version
+    attributes:
+      label: BetterMarkItDown version
+      description: "`bettermarkitdown --version`"
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: AI service and model
+      description: "For example: Google Gemini, gemini-3.6-flash; or Ollama, qwen3-vl:8b-instruct; or text only."
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of page
+      options:
+        - A page with a text layer (born-digital)
+        - A scanned page
+        - Equations set as pictures
+        - A figure or chart
+        - A table
+        - A page the model refused (study notes or local OCR)
+        - Word or PowerPoint
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: problem
+    attributes:
+      label: What went wrong
+      multiple: true
+      options:
+        - A formula is wrong
+        - A number is wrong
+        - Text is missing
+        - Text is invented
+        - A figure description is wrong
+        - Study notes leave out something important
+        - Study notes repeat the book's wording
+        - The free check (--verify) missed it
+        - The free check flagged something that is right
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: |
+        PDF page numbers, what you expected and what you got, in your own words. A formula
+        or a single number is fine to quote; a paragraph of the book is not.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or steps
+      description: "The command you ran (without any key), or what you clicked on the setup page."
+      render: shell

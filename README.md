@@ -589,11 +589,28 @@ training data. It is deterministic — the same page fails every time — and **
 does not try to defeat it.** No tiling pages into fragments, no rewording the prompt to
 disguise the request.
 
-Instead, those pages go to [RapidOCR](https://github.com/RapidAI/RapidOCR) running locally
-on your own file. Nothing leaves your machine, no provider policy is involved, and OCR is
-the right tool for reading a scan anyway. The trade-off is real and the output says so in
-an HTML comment on every affected page: layout is flattened, and mathematical notation is
-unreliable. Disable with `--no-ocr-fallback`.
+Nor does it transcribe those pages word for word some other way. What a student needs from
+the page is its knowledge, so the tool asks the model for something it does offer: **study
+notes on the page, in the model's own words**. They are checked against the page by a
+second request and revised once if that finds something wrong or missing; the page's
+equation, example, table and figure numbers (read free from its text layer) must each
+appear, and any that do not are listed; any line that shares eight or more words in a row
+with the page is removed. Each such page is labelled "Study notes, not the book's text" and
+names the PDF page to read for the full text. A refused page costs up to three requests.
+`--no-study-notes` skips this.
+
+Measured on six textbook pages with Gemini 3.6 Flash, run as if refused and compared with a
+reviewed transcription: no copied wording, every numbered item and every printed figure
+kept, and every formula correct (half written exactly as the book does, the rest in an
+equivalent form, such as without a pair of brackets). Notes still condense by nature, and
+the checking request is itself a model: treat them as notes, and read the original page
+when the exact wording matters.
+
+If the notes fail too, the page goes to [RapidOCR](https://github.com/RapidAI/RapidOCR)
+running locally on your own file. Nothing leaves your machine, and OCR is the right tool for
+reading a scan anyway. The trade-off is real and the output says so in an HTML comment on
+every affected page: layout is flattened, and mathematical notation is unreliable. Disable
+with `--no-ocr-fallback`.
 
 On a 163-page textbook, 4 pages hit this. On a 20-page set of lecture notes, 2 did — and
 those two were a professor's own notes, not a published book, which is a useful reminder

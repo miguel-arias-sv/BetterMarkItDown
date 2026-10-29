@@ -1,8 +1,10 @@
-"""The two prompts that do the actual work.
+"""The prompts that do the actual work.
 
-Both are written for transcription, not interpretation: the model is told to
-reproduce what is on the page and to mark what it cannot read, rather than to
-summarise. That distinction is what makes the output usable as study material.
+FIGURE_PROMPT and PAGE_PROMPT are written for transcription, not interpretation: the
+model is told to reproduce what is on the page and to mark what it cannot read, rather
+than to summarise. That distinction is what makes the output usable as study material.
+The NOTES prompts are the exception, for pages a model refuses to transcribe: there the
+model writes study notes in its own words instead (see notes.py).
 """
 
 FIGURE_PROMPT = """You are transcribing a figure taken from a book page into Markdown.
@@ -52,4 +54,42 @@ Rules:
   > table of the values you can read off>
 - Keep the printed page number as a final line like `<!-- page number: 123 -->`.
 - Output Markdown only, no preamble, no code fence around the whole answer.
+"""
+
+# Study notes, for a page the model refused to transcribe (see notes.py). Notes, not a
+# rewrite: the ideas explained afresh, never the page's wording or sentence order.
+NOTES_PROMPT = """This textbook page could not be transcribed. Write study notes on it for a
+student instead, in your own words.
+
+Rules:
+- Explain the ideas the way a tutor would. Do not quote the page, and do not follow its
+  wording or its sentence order: these are notes on the page, not a rewrite of it.
+- Include the main ideas; each term the page defines and what it means; every formula on
+  the page, stated exactly in LaTeX ($...$ inline, $$...$$ display), with the page's own
+  equation number beside it in parentheses, as (15.4); for each example, what it
+  estimates and its key results, with numbers exactly as printed (never rounded); for each
+  exercise, what it asks.
+- Mention every equation, example, table and figure number on the page, so the reader can
+  find them in the book.
+- Short Markdown bullet points under a few headings. Output Markdown only, no preamble.
+"""
+
+NOTES_CHECK_PROMPT = """Below are study notes about this textbook page. Compare them with the
+page. Reply with JSON only, in this form: {"wrong": [...], "missing": [...]}.
+
+- "wrong": each formula, number or statement in the notes that does not match the page;
+  say what the page has instead, as a formula or in your own words.
+- "missing": each important formula, result, condition or idea on the page that the notes
+  leave out.
+Do not quote the page's sentences. Use empty lists when there is nothing.
+
+NOTES:
+"""
+
+NOTES_REVISE_PROMPT = """Below are study notes about this textbook page and the problems a check
+found in them. Rewrite the notes so that every problem is fixed: correct what is wrong and
+add what is missing. Same rules as before: your own words, never the page's wording or
+sentence order; formulas exactly, in LaTeX, with the page's equation numbers; numbers
+exactly as printed; short Markdown bullet points. Output the complete notes only, in
+Markdown, no preamble.
 """

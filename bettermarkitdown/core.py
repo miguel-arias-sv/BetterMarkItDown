@@ -32,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote
 
+from . import notes as study
 from . import ocr as local_ocr
 from .config import GEMINI_BASE_URL, Options, Result
 from .prompts import FIGURE_PROMPT, PAGE_PROMPT
@@ -441,6 +442,20 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                                   use_cache=not opts.ask_again)
 
             if not has_content(body) or body.startswith("*[vision call failed"):
+                if opts.study_notes and study.refused(body):
+                    # Notes on the page in the model's own words, never its text: see
+                    # notes.py. Three requests at most, each cached like any other.
+                    def ask(img: bytes, prompt: str) -> str:
+                        reply = describe_image(client, opts.model, img, prompt, cache=cache,
+                                               limiter=limiter, meter=meter,
+                                               reasoning=opts.reasoning, max_retries=2,
+                                               use_cache=not opts.ask_again)
+                        return "" if reply.startswith("*[vision call failed") else reply
+
+                    written = study.study_notes(ask, png, native, index + 1)
+                    if written:
+                        parts.append(written)
+                        return index, "\n".join(parts), False, False, small
                 recovered = local_ocr.ocr_page(page, opts.dpi) if opts.ocr_fallback else None
                 if recovered:
                     parts.append(
@@ -627,6 +642,8 @@ def convert(opts: Options, on_event: Event | None = None,
         (pages_dir / f"{idx + 1:04d}.md").write_text(text, encoding="utf-8", newline="\n")
         with lock:
             result.pages_converted += 1
+            if study.SOURCE_TAG in text:
+                result.pages_notes.append(idx + 1)
             if used_ocr:
                 result.pages_ocr.append(idx + 1)
             if truncated:
@@ -653,6 +670,7 @@ def convert(opts: Options, on_event: Event | None = None,
     result.failed.sort()
     result.truncated.sort()
     result.pages_small_images.sort()
+    result.pages_notes.sort()
     if abort.is_set() and opts.budget_usd and meter.cost() > opts.budget_usd:
         result.stopped_reason = "budget"
     emit("finished", result=result)

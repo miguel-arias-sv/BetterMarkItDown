@@ -122,6 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="do not save a PNG of each scanned page")
     parser.add_argument("--no-ocr-fallback", dest="ocr_fallback", action="store_false",
                         help="do not fall back to local OCR on pages the model refuses")
+    parser.add_argument("--no-study-notes", dest="study_notes", action="store_false",
+                        help="on a page the model refuses to transcribe, go straight to local "
+                             "OCR instead of asking for study notes in the model's own words "
+                             "(up to 3 requests a page)")
     parser.add_argument("--fresh", action="store_true",
                         help="redo pages already finished. Overwrites hand edits in the "
                              "work dir")
@@ -587,6 +591,7 @@ def main(argv: list[str] | None = None) -> int:
         price_in=args.price_in, price_out=args.price_out, estimate=args.estimate,
         no_vision=args.no_vision, save_images=args.save_images,
         ocr_fallback=args.ocr_fallback and ocr.available(), fresh=args.fresh,
+        study_notes=args.study_notes,
     )
 
     doc = None
@@ -668,6 +673,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"       ~{Meter.usd(per_page * remaining)} to finish the remaining "
                   f"{remaining} {unit}(s); ~{Meter.usd(per_page * result.pages_total)} for "
                   f"all {result.pages_total} {unit}s")
+
+    if result.pages_notes:
+        print(f"\nThe model refused to transcribe {len(result.pages_notes)} page(s), which got "
+              f"study notes in its own words instead: {_page_list(result.pages_notes)}")
+        print("   Notes keep the ideas and formulas, not the wording or every exact figure; "
+              "each says which PDF page to read for the full text.")
 
     if result.pages_ocr:
         print(f"\nLocal OCR was used for {len(result.pages_ocr)} page(s): "

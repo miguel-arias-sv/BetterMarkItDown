@@ -94,6 +94,20 @@ setup page and workspace in the browser.
   full screen, or popped out above other windows in Chrome and Edge, with the progress bar
   on top, and says when your file is ready. Settings can turn the offer off.
 - The speed test's result is remembered, for the workspace's time estimates.
+- **Study notes for pages the model refuses to transcribe.** Gemini declines some pages of
+  published books (its recitation filter), which used to go straight to local OCR, word for
+  word and with unreliable maths. The tool now asks for study notes on the page instead, in
+  the model's own words: checked against the page and revised once, with every equation,
+  example, table and figure number the page holds, and with any line that repeats the
+  page's wording removed. Each such page is labelled and names the PDF page to read for the
+  full text; the run summary and `--verify` list them. Up to three requests a page;
+  `--no-study-notes` turns it off. Local OCR remains the last resort. Measured on six
+  textbook pages: no copied wording, every numbered item and printed figure kept, every
+  formula correct.
+- **For collaborators:** `CONTRIBUTING.md` (the rules every change keeps, how to report a
+  problem without sharing copyrighted text, how to measure a change), a "Conversion
+  problem" issue form, a pull-request checklist, and `scripts/notes_eval.py`, which
+  measures study notes against reviewed pages and prints numbers only.
 - **Agent mode: AI agents can use BetterMarkItDown on their own.**
   - **`--json`** on a conversion, `--verify`, `--toc`, `--list-models` and `providers`:
     one JSON object per line (progress events, then a summary, or an error), and nothing
