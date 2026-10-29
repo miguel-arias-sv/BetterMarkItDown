@@ -25,6 +25,12 @@ DefaultDirName={localappdata}\Programs\BetterMarkItDown
 DisableDirPage=auto
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+; RedirectionGuard (on by default) stops a process from following folder links (junctions)
+; made by others, and the programs Setup starts inherit it. It guards installers that run
+; with administrator rights; this one never has more rights than the person running it, so
+; a link could gain nobody anything. Left on, it refuses the link uv makes for its Python
+; version (error 448), and setup fails.
+RedirectionGuard=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesEnvironment=yes
@@ -73,6 +79,7 @@ Type: filesandordirs; Name: "{app}\tools"
 Type: filesandordirs; Name: "{app}\bin"
 Type: filesandordirs; Name: "{app}\cache"
 Type: files; Name: "{app}\install.log"
+Type: files; Name: "{app}\install.done"
 
 [Code]
 const
@@ -103,9 +110,15 @@ begin
     Paths := '';
   if Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Paths) + ';') > 0 then
     exit;
-  if (Paths <> '') and (Copy(Paths, Length(Paths), 1) <> ';') then
-    Paths := Paths + ';';
-  RegWriteExpandStringValue(HKCU, EnvKey, 'Path', Paths + Dir);
+  { RemoveFromPath takes out the entry and the ';' before it, so a PATH that ended with ';'
+    gets one after the entry too, and comes back exactly as it was. }
+  if Paths = '' then
+    Paths := Dir
+  else if Copy(Paths, Length(Paths), 1) = ';' then
+    Paths := Paths + Dir + ';'
+  else
+    Paths := Paths + ';' + Dir;
+  RegWriteExpandStringValue(HKCU, EnvKey, 'Path', Paths);
 end;
 
 procedure RemoveFromPath(Dir: String);
@@ -125,12 +138,30 @@ begin
   RegWriteExpandStringValue(HKCU, EnvKey, 'Path', Paths);
 end;
 
-procedure OnInstallLine(const S: String; const Error, FirstLine: Boolean);
+{ Exit code 10 when the program could not be set up, so a silent install (and the release
+  workflow's test) fails instead of reporting success. Called only when Setup finishes. }
+function GetCustomSetupExitCode: Integer;
 begin
-  SaveStringToFile(ExpandConstant('{app}\install.log'), S + #13#10, True);
-  if Trim(S) <> '' then
-    Progress.Msg2Label.Caption := Copy(Trim(S), 1, 90);
-  Progress.Animate;
+  if InstallOK then
+    Result := 0
+  else
+    Result := 10;
+end;
+
+function LastLine(FileName: String): String;
+var
+  Lines: TArrayOfString;
+  I: Integer;
+begin
+  Result := '';
+  if not LoadStringsFromFile(FileName, Lines) then
+    exit;
+  for I := GetArrayLength(Lines) - 1 downto 0 do
+    if Trim(Lines[I]) <> '' then
+    begin
+      Result := Trim(Lines[I]);
+      exit;
+    end;
 end;
 
 function Extras: String;
@@ -152,24 +183,46 @@ begin
     'Downloading its own Python and libraries. This takes a minute or two.');
 end;
 
+{ Run install.ps1 without waiting on it, so the progress page keeps moving: the script
+  writes install.log as it goes and its exit code to install.done at the end, and Setup
+  watches both. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ResultCode: Integer;
-  Params: String;
+  ResultCode, Waited: Integer;
+  Params, Done, Log, Line: String;
+  Codes: TArrayOfString;
 begin
   if CurStep <> ssPostInstall then
     exit;
-  DeleteFile(ExpandConstant('{app}\install.log'));
+  Done := ExpandConstant('{app}\install.done');
+  Log := ExpandConstant('{app}\install.log');
+  DeleteFile(Done);
   Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
             ExpandConstant('{app}\install.ps1') + '"';
   if Extras <> '' then
     Params := Params + ' -Extras "' + Extras + '"';
+  ResultCode := -1;
   Progress.Show;
   try
-    InstallOK := ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-                                  Params, ExpandConstant('{app}'), SW_HIDE,
-                                  ewWaitUntilTerminated, ResultCode, @OnInstallLine)
-                 and (ResultCode = 0);
+    if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params,
+            ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode) then
+    begin
+      Waited := 0;
+      while (not FileExists(Done)) and (Waited < 30 * 60 * 1000) do
+      begin
+        Sleep(250);
+        Waited := Waited + 250;
+        Line := LastLine(Log);
+        if Line <> '' then
+          Progress.Msg2Label.Caption := Copy(Line, 1, 90);
+        Progress.Animate;
+      end;
+      ResultCode := -1;
+      Sleep(250);                              { let the script finish writing it }
+      if LoadStringsFromFile(Done, Codes) and (GetArrayLength(Codes) > 0) then
+        ResultCode := StrToIntDef(Trim(Codes[0]), -1);
+    end;
+    InstallOK := ResultCode = 0;
   finally
     Progress.Hide;
   end;

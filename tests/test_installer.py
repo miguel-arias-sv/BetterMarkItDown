@@ -60,3 +60,21 @@ def test_it_installs_per_user_and_puts_everything_in_its_own_folder():
 def test_uv_is_pinned():
     build = load("build")
     assert re.fullmatch(r"\d+\.\d+\.\d+", build.UV_VERSION)
+
+
+def test_setup_fails_loudly_and_is_not_blocked_by_its_own_guard():
+    """Found by installing on a real laptop: RedirectionGuard, inherited by install.ps1,
+    refused uv's Python version link (error 448), and Setup still exited 0."""
+    iss = (INSTALLER / "BetterMarkItDown.iss").read_text(encoding="utf-8")
+    assert "RedirectionGuard=no" in iss and "PrivilegesRequired=lowest" in iss
+    assert "function GetCustomSetupExitCode" in iss and "Result := 10" in iss
+    ps1 = (INSTALLER / "install.ps1").read_text(encoding="utf-8")
+    assert "install.done" in ps1 and "finally" in ps1          # the exit code always lands
+
+
+def test_a_path_ending_in_a_semicolon_gets_one_after_our_entry():
+    """So removing our entry and the ';' before it gives the PATH back character for
+    character (also found on a real laptop)."""
+    iss = (INSTALLER / "BetterMarkItDown.iss").read_text(encoding="utf-8")
+    assert "Paths := Paths + Dir + ';'" in iss
+    assert "Delete(Paths, P - 1, Length(Dir) + 1)" in iss
