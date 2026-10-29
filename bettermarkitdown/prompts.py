@@ -71,6 +71,8 @@ Rules:
   exercise, what it asks.
 - Mention every equation, example, table and figure number on the page, so the reader can
   find them in the book.
+- A dollar sign that means money is written \\$ (\\$10.00), so it is not read as the start
+  of a formula.
 - Short Markdown bullet points under a few headings. Output Markdown only, no preamble.
 """
 

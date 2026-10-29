@@ -596,15 +596,17 @@ second request and revised once if that finds something wrong or missing; the pa
 equation, example, table and figure numbers (read free from its text layer) must each
 appear, and any that do not are listed; any line that shares eight or more words in a row
 with the page is removed. Each such page is labelled "Study notes, not the book's text" and
-names the PDF page to read for the full text. A refused page costs up to three requests.
-`--no-study-notes` skips this.
+names the PDF page to read for the full text. After a revision the notes are checked once
+more, and whatever that check still questions is listed above them, to compare with the
+page. A refused page costs up to four requests. `--no-study-notes` skips this.
 
 Measured on six textbook pages with Gemini 3.6 Flash, run as if refused and compared with a
-reviewed transcription: no copied wording, every numbered item and every printed figure
-kept, and every formula correct (half written exactly as the book does, the rest in an
-equivalent form, such as without a pair of brackets). Notes still condense by nature, and
-the checking request is itself a model: treat them as notes, and read the original page
-when the exact wording matters.
+reviewed transcription (`scripts/notes_eval.py`): no copied wording, every numbered item and
+every printed figure kept, and the formulas right where checked by hand. But after one
+revision the final check still questioned five statements and five omissions across the six
+pages, and at least one was a real slip (a "parameter" where the book means a "variable").
+The checking request is itself a model and is sometimes wrong too. Treat study notes as
+notes: read the original page when the exact wording or a detail matters.
 
 If the notes fail too, the page goes to [RapidOCR](https://github.com/RapidAI/RapidOCR)
 running locally on your own file. Nothing leaves your machine, and OCR is the right tool for

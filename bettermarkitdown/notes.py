@@ -14,9 +14,13 @@ something it does offer: study notes on the page, in its own words, which are th
    the page's text is removed;
 4. labelled as notes, not the book's text, with the PDF page to read for the full text.
 
-Notes condense by nature: they keep the ideas and formulas, not every detail or exact
-figure. A pilot on six textbook pages kept every formula correct, about half the
-equation numbers before step 2 existed, and left out one to three points per page.
+5. checked once more after a revision; whatever that check still questions is listed
+   above the notes, for the reader to compare with the page.
+
+Notes condense by nature, and the check is itself a model. Measured on six textbook pages
+(scripts/notes_eval.py): no copied wording, every numbered item and printed figure kept,
+and, after one revision, still about one real slip every few pages (a "parameter" where
+the book means a "variable"), which step 5 puts in front of the reader.
 """
 
 from __future__ import annotations
@@ -75,6 +79,21 @@ def remove_copied(notes: str, page_text: str) -> tuple[str, int]:
     return "\n".join(kept).strip(), dropped
 
 
+def escape_money(notes: str) -> str:
+    r"""Write money as \$10.00, as transcriptions do, so a viewer never reads it as the
+    start of a formula. Uses --verify's own test for what is money."""
+    from .verify import _CURRENCY, _looks_like_currency
+
+    out, last = [], 0
+    for m in _CURRENCY.finditer(notes):
+        if m.start() > 0 and notes[m.start() - 1] == "\\":
+            continue
+        if _looks_like_currency(notes, m.start()):
+            out.append(notes[last:m.start()] + "\\")
+            last = m.start()
+    return "".join(out) + notes[last:]
+
+
 def missing_items(notes: str, items: list[str]) -> list[str]:
     """The page's numbered items the notes never mention."""
     flat = re.sub(r"\s+", " ", notes)
@@ -86,13 +105,39 @@ def missing_items(notes: str, items: list[str]) -> list[str]:
     return out
 
 
+def _short(text: str, limit: int = 240) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "..."
+
+
+class CheckUnreadable(ValueError):
+    """The check's reply held no JSON object: never read as "no problems"."""
+
+
 def _parse_check(reply: str) -> dict:
-    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", reply.strip())
-    try:
-        found = json.loads(raw)
-    except ValueError:
-        return {}
-    return found if isinstance(found, dict) else {}
+    """The check's JSON object, wherever it sits in the reply: Gemini writes a bare `json`
+    label before it once its code fence is stripped. Raises CheckUnreadable when there is
+    none, so a reply nobody could read never passes for a clean check."""
+    start, end = reply.find("{"), reply.rfind("}")
+    if start < 0 or end <= start:
+        raise CheckUnreadable(reply[:120])
+    raw = reply[start:end + 1]
+    # LaTeX inside the strings, such as \sum or \beta: a single backslash before two or
+    # more letters is a command, never one of JSON's own escapes, even where JSON would
+    # accept it (\b, \f, \n, \r, \t: "\beta" would become a backspace and "eta"). Read it
+    # as written first; an already-escaped "\\beta" is left alone.
+    latex = re.sub(r"(?<!\\)((?:\\\\)*)\\(?=[A-Za-z]{2,})", r"\1\\\\", raw)
+    for candidate in (latex, raw):
+        try:
+            found = json.loads(candidate)
+            break
+        except ValueError:
+            continue
+    else:
+        raise CheckUnreadable(reply[:120])
+    if not isinstance(found, dict):
+        raise CheckUnreadable(reply[:120])
+    return found
 
 
 def study_notes(describe, png: bytes, page_text: str, page_number: int) -> str | None:
@@ -105,7 +150,10 @@ def study_notes(describe, png: bytes, page_text: str, page_number: int) -> str |
     if not notes or refused(notes) or notes.startswith("*[vision call failed"):
         return None
 
-    check = _parse_check(describe(png, NOTES_CHECK_PROMPT + notes))
+    try:
+        check, checked = _parse_check(describe(png, NOTES_CHECK_PROMPT + notes)), True
+    except CheckUnreadable:
+        check, checked = {}, False
     problems = [f"Wrong: {x}" for x in check.get("wrong", []) if x]
     problems += [f"Missing: {x}" for x in check.get("missing", []) if x]
     problems += [f"Missing numbered item: {x}" for x in missing_items(notes, items)]
@@ -119,22 +167,40 @@ def study_notes(describe, png: bytes, page_text: str, page_number: int) -> str |
     notes, dropped = remove_copied(notes, page_text)
     if not notes:
         return None
+    notes = escape_money(notes)
+    # One revision does not catch everything (a pilot still found about one real slip in
+    # every few pages), so the final notes are checked once more, and whatever the check
+    # still questions is shown above them, for the reader to compare with the page.
+    doubts: list[str] = []
+    if checked and revised:
+        try:
+            final = _parse_check(describe(png, NOTES_CHECK_PROMPT + notes))
+            doubts = [str(x) for x in final.get("wrong", []) + final.get("missing", []) if x]
+        except CheckUnreadable:
+            doubts = ["the last check's reply could not be read"]
     absent = missing_items(notes, items)
+    how = ("Checked against the page image" + (", and revised once" if revised else "")
+           if checked else "NOT checked: the check's reply could not be read"
+           + ("; revised once for missing numbered items" if revised else ""))
     lines = [
         f"{SOURCE_TAG} (the model declined to transcribe this page: its recitation filter). "
-        f"Not the book's text. {'Checked and revised once' if revised else 'Checked'} "
-        f"against the page image. -->",
+        f"Not the book's text. {how}. -->",
         "",
         f"> **Study notes, not the book's text.** The model would not transcribe this page, "
-        f"so these are notes on its ideas, in the model's own words, checked against the "
-        f"page. They may leave out details or exact figures: for the full page, read PDF "
-        f"page {page_number}.",
+        f"so these are notes on its ideas, in the model's own words"
+        f"{', checked against the page' if checked else ' (not checked against the page)'}. "
+        f"They may leave out details or exact figures: for the full page, read PDF page "
+        f"{page_number}.",
     ]
     if items:
         lines.append(">")
         lines.append(f"> On this page: {', '.join(items)}.")
     if absent:
         lines.append(f"> Not covered in these notes: {', '.join(absent)}: see the PDF.")
+    if doubts:
+        lines.append(">")
+        lines.append("> The check still questions these points; compare them with the page:")
+        lines += [f"> - {escape_money(_short(d))}" for d in doubts[:6]]
     if dropped:
         lines.append(f"> {dropped} line(s) that repeated the page's wording were removed.")
     if not page_text.strip():

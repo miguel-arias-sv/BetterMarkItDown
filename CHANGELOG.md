@@ -100,10 +100,11 @@ setup page and workspace in the browser.
   the model's own words: checked against the page and revised once, with every equation,
   example, table and figure number the page holds, and with any line that repeats the
   page's wording removed. Each such page is labelled and names the PDF page to read for the
-  full text; the run summary and `--verify` list them. Up to three requests a page;
-  `--no-study-notes` turns it off. Local OCR remains the last resort. Measured on six
-  textbook pages: no copied wording, every numbered item and printed figure kept, every
-  formula correct.
+  full text, and lists whatever a final check still questions; the run summary and
+  `--verify` list such pages. Up to four requests a page; `--no-study-notes` turns it off.
+  Local OCR remains the last resort. Measured on six textbook pages: no copied wording,
+  every numbered item and printed figure kept, and still about one real slip every few
+  pages after revision, which the listed doubts point to.
 - **For collaborators:** `CONTRIBUTING.md` (the rules every change keeps, how to report a
   problem without sharing copyrighted text, how to measure a change), a "Conversion
   problem" issue form, a pull-request checklist, and `scripts/notes_eval.py`, which

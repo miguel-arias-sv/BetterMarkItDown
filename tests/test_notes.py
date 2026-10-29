@@ -79,7 +79,9 @@ class SimpleReplies:
 
 def test_a_refused_page_gets_checked_labelled_notes_not_its_text(tmp_path, model):
     result = core.convert(run_options(tmp_path, ocr_fallback=False))
-    assert model.asked == ["transcribe", "notes", "check", "revise"]
+    assert model.asked == ["transcribe", "notes", "check", "revise", "check"]
+    assert "The check still questions these points" in (
+        tmp_path / "book_work" / "pages" / "0001.md").read_text(encoding="utf-8")
     assert result.pages_notes == [1] and result.failed == []
     page = (tmp_path / "book_work" / "pages" / "0001.md").read_text(encoding="utf-8")
     assert notes.SOURCE_TAG in page and "Study notes, not the book's text" in page
@@ -128,3 +130,35 @@ def test_numbered_items_and_copied_lines_are_found():
     assert dropped == 1 and kept == "- my own words about slopes"
     assert notes.missing_items("see (3.1) and Example 3.2", ["(3.1)", "Example 3.2",
                                                              "Table 3.4"]) == ["Table 3.4"]
+
+
+def test_the_check_is_read_as_gemini_writes_it_and_never_assumed_clean():
+    """Gemini puts a bare `json` label before the object; a reply with no object at all
+    must not pass for "no problems"."""
+    reply = 'json\n{\n  "wrong": ["(3.1) has b, not a"],\n  "missing": []\n}'
+    assert notes._parse_check(reply) == {"wrong": ["(3.1) has b, not a"], "missing": []}
+    with pytest.raises(notes.CheckUnreadable):
+        notes._parse_check("I could not compare these notes.")
+    # LaTeX in the strings, with single backslashes, exactly as the reply arrives.
+    latex = "json\n" + r'{"wrong": ["the sum is $\sum_i \beta_i$, not $\bar{x}$"], "missing": []}'
+    assert notes._parse_check(latex)["wrong"] == [r"the sum is $\sum_i \beta_i$, not $\bar{x}$"]
+
+    answers = iter(["- $y = a + bx$ (3.1)", "no JSON here",
+                    "- $y = a + bx$ (3.1), Example 3.2, Table 3.4"])
+    written = notes.study_notes(lambda png, prompt: next(answers), b"", PAGE, 7)
+    assert "NOT checked" in written and "not checked against the page" in written
+    assert "revised once for missing numbered items" in written
+
+
+def test_money_in_notes_is_escaped_and_maths_is_left_alone():
+    text = "- A wage of $10.00 hourly, and $1 more.\n- The interval is $1.96 \sigma$ wide."
+    out = notes.escape_money(text)
+    assert "\$10.00 hourly" in out and "\$1 more" in out
+    assert "$1.96 \sigma$" in out and "\$1.96" not in out
+
+
+def test_latex_in_the_check_keeps_its_backslashes_even_where_json_has_an_escape():
+    # \beta and \frac start with JSON escapes (\b, \f); read naively they lose a letter.
+    # Single backslashes, as the reply arrives, plus one already escaped (\\theta).
+    reply = "json\n" + r'{"wrong": ["$\beta_2$, not $\frac{1}{2}$, or \\theta"], "missing": []}'
+    assert notes._parse_check(reply)["wrong"] == [r"$\beta_2$, not $\frac{1}{2}$, or \theta"]

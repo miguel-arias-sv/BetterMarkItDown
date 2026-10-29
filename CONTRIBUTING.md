@@ -50,9 +50,11 @@ Open an issue with the **Conversion problem** form. Please:
 ## Known limits, open to fixes
 
 - Study notes keep ideas, formulas and figures well in the measurements so far (six
-  textbook pages, Gemini 3.6 Flash), but they condense by nature and the checking request
-  is itself a model that makes mistakes. More measurements on other books, subjects and
-  models are welcome.
+  textbook pages, Gemini 3.6 Flash), but after one revision a final check still questions
+  a few points per page, at least some of them real slips, and the check is itself a model
+  that makes mistakes. Better prompts or a better check, measured with
+  `scripts/notes_eval.py`, are welcome, as are measurements on other books, subjects and
+  models.
 - Figure descriptions of dense diagrams are the weakest part of a transcription (see
   "Reviewing the output" in the README).
 - Local models (Qwen3-VL 4B and 8B) miss hand-drawn graphs; providers other than Gemini
