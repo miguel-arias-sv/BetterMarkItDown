@@ -37,8 +37,9 @@ def test_the_script_installs_only_what_the_build_stages():
     staged = {"uv.exe", "{#WheelFile}", "install.ps1", "app.ico", "LICENSE.txt"}
     assert sources == staged
     build = (INSTALLER / "build.py").read_text(encoding="utf-8")
-    for name in ("uv.exe", "install.ps1", "app.ico", "LICENSE.txt"):
+    for name in ("uv.exe", "install.ps1", "app.ico", "LICENSE.txt", "privacy.txt"):
         assert f'"{name}"' in build
+    assert r"InfoBeforeFile={#SourceDir}\privacy.txt" in iss
     for define in ("AppVersion", "WheelFile", "SourceDir", "OutputDir"):
         assert f"/D{define}=" in build and f"{{#{define}}}" in iss
 

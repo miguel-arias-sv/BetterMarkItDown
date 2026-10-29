@@ -5,7 +5,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/miguel-arias-sv/BetterMarkItDown)](https://github.com/miguel-arias-sv/BetterMarkItDown/releases/latest)
 [![Tests](https://github.com/miguel-arias-sv/BetterMarkItDown/actions/workflows/ci.yml/badge.svg)](https://github.com/miguel-arias-sv/BetterMarkItDown/actions/workflows/ci.yml)
-· [What's New](CHANGELOG.md)
+· [What's New](CHANGELOG.md) · [Code signing policy](CODE_SIGNING_POLICY.md) · [Privacy](PRIVACY.md)
 
 [Microsoft's MarkItDown](https://github.com/microsoft/markitdown) is excellent, and it has
 one gap that matters enormously for textbooks, papers and lecture notes: **its PDF path
@@ -92,10 +92,13 @@ and double-click it. No Python, no administrator rights: it installs for you alo
 like, a desktop icon, both of which open the setup page; and it can put the
 `bettermarkitdown` command on your PATH, for terminals and AI agents.
 
-- **"Windows protected your PC"?** The installer is not code-signed yet (an application to a
-  free signing service for open-source projects is planned), so Windows SmartScreen does not
-  know it. Click **More info**, then **Run anyway**. Only do that for the file from this
-  project's releases page.
+- **"Windows protected your PC"?** The installer is not code-signed yet (see the
+  [code signing policy](CODE_SIGNING_POLICY.md): signing by SignPath Foundation is applied
+  for), so Windows SmartScreen does not know it. Click **More info**, then **Run anyway**.
+  Only do that for the file from this project's releases page.
+- **What it sends where:** during setup it downloads Python and its libraries; afterwards
+  nothing leaves your computer unless you convert with an online AI service you chose. The
+  installer shows this before installing; details in [PRIVACY.md](PRIVACY.md).
 - **Uninstall** from Settings > Apps > Installed apps > BetterMarkItDown. It removes the
   program and its Python, and asks whether to delete your library, settings and saved keys
   too. Your converted files in `Documents\BetterMarkItDown` are never removed.

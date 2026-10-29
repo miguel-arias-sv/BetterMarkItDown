@@ -1,0 +1,13 @@
+Before you install: what BetterMarkItDown sends, and where
+
+During setup, this installer downloads Python and BetterMarkItDown's libraries (from GitHub and PyPI, about 500 MB).
+
+Afterwards, BetterMarkItDown sends nothing on its own: no usage statistics, no crash reports, no update checks.
+
+When you convert a document with an online AI service that you choose (Google Gemini, OpenAI, Anthropic, Moonshot Kimi, OpenRouter), the pages and pictures that need the AI are sent to that service, as images. Its own terms then apply; some free tiers may use what you send to improve their products.
+
+To send nothing, use a model on your own computer, or convert text only. You choose this on the setup page, and can change it at any time.
+
+API keys are kept in Windows Credential Manager, never in a file.
+
+The full privacy statement: https://github.com/miguel-arias-sv/BetterMarkItDown/blob/main/PRIVACY.md

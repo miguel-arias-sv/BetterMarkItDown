@@ -47,8 +47,11 @@ def main(argv: list[str]) -> int:
         return 1
     sys.stdout.reconfigure(encoding="utf-8")
     print(notes)
-    print("\n---\nInstall: `pip install bettermarkitdown-" + version + "-py3-none-any.whl` "
-          "(attached below), or see the README. Full history: CHANGELOG.md.")
+    repo = "https://github.com/miguel-arias-sv/BetterMarkItDown/blob/main"
+    print(f"\n---\nInstall on Windows: `BetterMarkItDown-Setup-{version}.exe` (attached below). "
+          f"With pip: `pip install bettermarkitdown-{version}-py3-none-any.whl`. "
+          f"Full history: CHANGELOG.md.\n\n"
+          f"[Code signing policy]({repo}/CODE_SIGNING_POLICY.md) · [Privacy]({repo}/PRIVACY.md)")
     return 0
 
 

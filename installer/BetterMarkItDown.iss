@@ -35,6 +35,15 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesEnvironment=yes
 LicenseFile={#SourceDir}\LICENSE.txt
+; What the program sends, and where: shown before installing (SignPath's conditions ask for it).
+InfoBeforeFile={#SourceDir}\privacy.txt
+; File details, the same in every build of a version (also a SignPath condition).
+VersionInfoProductName=BetterMarkItDown
+VersionInfoProductVersion={#AppVersion}
+VersionInfoVersion={#AppVersion}
+VersionInfoDescription=BetterMarkItDown installer
+VersionInfoCompany=BetterMarkItDown contributors
+VersionInfoCopyright=MIT licence, BetterMarkItDown contributors
 SetupIconFile={#SourceDir}\app.ico
 UninstallDisplayIcon={app}\app.ico
 UninstallDisplayName=BetterMarkItDown

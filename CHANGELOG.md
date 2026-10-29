@@ -103,6 +103,12 @@ setup page and workspace in the browser.
   Windows SmartScreen warns about it (the README says what to do). An icon, too: the setup
   page game's llama on a page.
 - `bettermarkitdown key forget all` removes every saved key.
+- **A code signing policy and a privacy statement** (`CODE_SIGNING_POLICY.md`, `PRIVACY.md`),
+  linked from the README and every release page, for free code signing by SignPath
+  Foundation (applied for). The installer shows what the program sends where before it
+  installs, and carries its product name and version in its file details. The release
+  workflow signs the installer through SignPath once the project is approved, then tests
+  and publishes the signed one.
 - **Study notes for pages the model refuses to transcribe.** Gemini declines some pages of
   published books (its recitation filter), which used to go straight to local OCR, word for
   word and with unreliable maths. The tool now asks for study notes on the page instead, in

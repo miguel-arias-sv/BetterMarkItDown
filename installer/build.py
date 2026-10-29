@@ -74,6 +74,7 @@ def main() -> int:
     fetch_uv(STAGE)
     run(sys.executable, str(ROOT / "installer" / "make_icon.py"), str(STAGE / "app.ico"))
     shutil.copy(ROOT / "installer" / "install.ps1", STAGE / "install.ps1")
+    shutil.copy(ROOT / "installer" / "privacy.txt", STAGE / "privacy.txt")
     shutil.copy(ROOT / "LICENSE", STAGE / "LICENSE.txt")
 
     run(find_iscc(), "/Q", f"/DAppVersion={ver}", f"/DWheelFile={wheel}",

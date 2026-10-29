@@ -78,6 +78,43 @@ jobs:
           python -m pip install --upgrade pip pillow
           python installer/build.py
 
+      # Code signing by SignPath Foundation (see CODE_SIGNING_POLICY.md). Skipped until the
+      # repository has the variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and
+      # SIGNPATH_SIGNING_POLICY_SLUG and the secret SIGNPATH_API_TOKEN; then each signing
+      # request waits for the maintainer's approval in SignPath, and the signed installer
+      # replaces the unsigned one before it is tested and published.
+      - name: Upload the unsigned installer for signing
+        id: unsigned
+        if: vars.SIGNPATH_PROJECT_SLUG != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-unsigned
+          path: dist/BetterMarkItDown-Setup-*.exe
+
+      - name: Sign it (SignPath)
+        if: vars.SIGNPATH_PROJECT_SLUG != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600     # approval is by hand
+          output-artifact-directory: signed
+
+      - name: Use the signed installer
+        if: vars.SIGNPATH_PROJECT_SLUG != ''
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem signed -Filter "BetterMarkItDown-Setup-*.exe" -Recurse | Select-Object -First 1
+          if (-not $signed) { Write-Error "SignPath returned no installer"; exit 1 }
+          $sig = Get-AuthenticodeSignature $signed.FullName
+          "signature: $($sig.Status), signer: $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne "Valid") { Write-Error "the installer is not validly signed"; exit 1 }
+          Copy-Item $signed.FullName dist -Force
+
       - name: Install it, try it, uninstall it
         shell: pwsh
         run: |
