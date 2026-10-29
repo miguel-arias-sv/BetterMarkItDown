@@ -121,16 +121,17 @@ what you fixed, the total cost, and where the output is. Never report success be
 ## Pages the model refuses
 
 Online models sometimes refuse a page of a published book (Gemini's recitation filter). Do
-not work around it: no splitting the page into pieces, no rewording to disguise the request.
-The tool falls back to local OCR on the person's own file; such pages are listed in the
-summary, their layout is flattened and their maths unreliable. Tell the person, and offer to
-retype them from the page image.
+not work around it: no splitting the page into pieces, no rewording to disguise the request,
+and do not transcribe the page yourself instead: that produces the very text the model
+declined to. The tool falls back to local OCR on the person's own file; such pages are
+listed in the summary, their layout is flattened and their maths unreliable. Tell the person
+which pages they are, so they can read those in the original.
 
 ## Without the command line: MCP
 
 `bettermarkitdown mcp` is a Model Context Protocol server (stdio) with the same steps as
-tools: `setup_status`, `inspect`, `toc`, `estimate`, `convert` (runs in the background) with
-`job_status` and `stop`, `verify`, `get_page`, `set_page`, and the shared library
+tools: `setup_status`, `inspect`, `toc`, `convert` (runs in the background) with
+`job_status` (pass `wait_seconds` to wait for it instead of polling) and `stop`, `verify`, `get_page`, `set_page`, and the shared library
 (`library_list`, `library_add`). `bettermarkitdown agent mcp` prints how to register it.
 
 ## What has been measured

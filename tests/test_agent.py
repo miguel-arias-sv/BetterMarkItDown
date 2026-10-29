@@ -237,11 +237,7 @@ def test_mcp_converts_in_the_background_then_checks_and_edits(server, tmp_path, 
     pdf = make_pdf(tmp_path / "notes.pdf")
     error, job = tool(server, "convert", path=str(pdf), every_page=True, budget_usd=1)
     assert not error and job["status"] == "running"
-    for _ in range(600):
-        error, job = tool(server, "job_status", job_id=job["id"])
-        if job["status"] != "running":
-            break
-        time.sleep(0.05)
+    error, job = tool(server, "job_status", job_id=job["id"], wait_seconds=30)
     assert job["status"] == "done", job["error"]
     assert job["result"]["converted"] == 3 and job["result"]["cost"] > 0
     assert Path(job["result"]["output"]).is_file()

@@ -88,8 +88,12 @@ TOOLS = [
                      "bettermarkitdown app."}})},
     {"name": "job_status",
      "description": "A conversion's progress: pages done of total, the pages being read, "
-                    "money spent, seconds left; and its result once status is done.",
-     "inputSchema": _schema({"job_id": {"type": "string"}}, ("job_id",))},
+                    "money spent, seconds left; and its result once status is done. "
+                    "wait_seconds (up to 60) waits for the job to end before answering, "
+                    "instead of polling.",
+     "inputSchema": _schema({"job_id": {"type": "string"},
+                             "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}},
+                            ("job_id",))},
     {"name": "stop",
      "description": "Stop a conversion after the pages being read. Finished pages are kept.",
      "inputSchema": _schema({"job_id": {"type": "string"}}, ("job_id",))},
@@ -257,10 +261,19 @@ class Server:
         return job
 
     def tool_job_status(self, args) -> dict:
+        import time
+
         from .app.server import job_json
         job = self.jobs.get(str(args.get("job_id", "")))
         if not job:
             raise ToolError("No such job in this session.")
+        try:
+            wait = min(60.0, max(0.0, float(args.get("wait_seconds") or 0)))
+        except (TypeError, ValueError):
+            wait = 0.0
+        deadline = time.monotonic() + wait
+        while job.status == "running" and time.monotonic() < deadline:
+            time.sleep(0.25)
         return job_json(job)
 
     def tool_stop(self, args) -> dict:
