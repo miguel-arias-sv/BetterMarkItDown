@@ -25,7 +25,9 @@ files, study notes for pages a model refuses, and a mode for AI agents.
   icon and the `bettermarkitdown` command on the PATH). Local OCR and Claude support are
   options. Uninstalling removes the program and asks before deleting the library, settings
   and saved keys; converted files in Documents are never touched. Not code-signed yet, so
-  Windows SmartScreen warns about it (the README says what to do). An icon, too: the setup
+  Windows SmartScreen warns about it (the README says what to do). Updating while the
+  program is open closes it first, after asking, and a failed setup shows the reason from
+  its log. An icon, too: the setup
   page game's llama on a page.
 - **A setup page in your browser: `bettermarkitdown app`.** It explains why a browser
   opened and when internet is needed, then asks who will use the tool (you, an AI agent,

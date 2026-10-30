@@ -79,3 +79,15 @@ def test_a_path_ending_in_a_semicolon_gets_one_after_our_entry():
     iss = (INSTALLER / "BetterMarkItDown.iss").read_text(encoding="utf-8")
     assert "Paths := Paths + Dir + ';'" in iss
     assert "Delete(Paths, P - 1, Length(Dir) + 1)" in iss
+
+
+def test_an_open_copy_is_closed_before_updating_and_failures_say_why():
+    """Found by Miguel updating with the app open: its Python held the old files, uv got
+    'Access is denied' (os error 5), and the message blamed the internet connection."""
+    iss = (INSTALLER / "BetterMarkItDown.iss").read_text(encoding="utf-8")
+    assert "function PrepareToInstall" in iss and "function InitializeUninstall" in iss
+    assert "$_.Path -like" in iss and "Stop-Process" in iss    # only programs in {app}
+    assert "MB_OKCANCEL" in iss                                 # asked first
+    assert "LastLine(Log)" in iss and "internet connection dropped" not in iss
+    ps1 = (INSTALLER / "install.ps1").read_text(encoding="utf-8")
+    assert "UV_SYSTEM_CERTS" in ps1 and "UV_NATIVE_TLS" not in ps1   # deprecated name

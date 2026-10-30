@@ -102,7 +102,8 @@ like, a desktop icon, both of which open the setup page; and it can put the
 - **Uninstall** from Settings > Apps > Installed apps > BetterMarkItDown. It removes the
   program and its Python, and asks whether to delete your library, settings and saved keys
   too. Your converted files in `Documents\BetterMarkItDown` are never removed.
-- **Upgrade** by running a newer installer over the old one.
+- **Upgrade** by running a newer installer over the old one. If BetterMarkItDown is open,
+  Setup asks to close it first; your library, settings and keys stay.
 
 **With pip, from a release.** One command installs a fixed, tested version and its
 dependencies, including the local OCR fallback:

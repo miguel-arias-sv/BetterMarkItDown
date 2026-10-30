@@ -27,7 +27,7 @@ try {
     $env:UV_CACHE_DIR = Join-Path $app "cache"
     $env:UV_PYTHON_PREFERENCE = "only-managed"    # never a Python already on this computer
     $env:UV_NO_MODIFY_PATH = "1"
-    $env:UV_NATIVE_TLS = "1"                      # trust Windows' certificates (company proxies)
+    $env:UV_SYSTEM_CERTS = "1"                    # trust Windows' certificates (company proxies)
     $env:UV_LINK_MODE = "copy"                    # so the cache can be deleted afterwards
     $env:NO_COLOR = "1"
 

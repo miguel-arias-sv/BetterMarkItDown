@@ -157,6 +157,53 @@ begin
     Result := 10;
 end;
 
+{ BetterMarkItDown still open from this folder holds its Python's files, and an update
+  cannot replace them ("Access is denied", os error 5). Find its programs, by where they
+  run from, and close them after asking. Nothing else on the computer is touched. }
+function PowerShellAbout(Action: String): Integer;
+var
+  Dir, Script: String;
+begin
+  Dir := ExpandConstant('{app}');
+  StringChangeEx(Dir, '''', '''''', True);
+  Script := '$p = @(Get-Process | Where-Object { $_.Path -like ''' + Dir + '\*'' }); ';
+  if Action = 'stop' then
+    Script := Script + '$p | Stop-Process -Force; Start-Sleep -Milliseconds 500; exit 0'
+  else
+    Script := Script + 'if ($p.Count) { exit 1 } else { exit 0 }';
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+              '-NoProfile -NonInteractive -Command "' + Script + '"', '', SW_HIDE,
+              ewWaitUntilTerminated, Result) then
+    Result := 0;
+end;
+
+function CloseRunningCopy(Doing: String): Boolean;
+begin
+  Result := True;
+  if not DirExists(ExpandConstant('{app}')) or (PowerShellAbout('check') = 0) then
+    exit;
+  if SuppressibleMsgBox('BetterMarkItDown is open. Setup closes it to ' + Doing + '.' + #13#10#13#10 +
+      'Your files, library and settings are kept. If you are editing a page, save it first.',
+      mbConfirmation, MB_OKCANCEL, IDOK) <> IDOK then
+  begin
+    Result := False;
+    exit;
+  end;
+  PowerShellAbout('stop');
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if not CloseRunningCopy('update it') then
+    Result := 'BetterMarkItDown is still open. Close it (Quit, at the top of its page), then run Setup again.';
+end;
+
+function InitializeUninstall: Boolean;
+begin
+  Result := CloseRunningCopy('remove it');
+end;
+
 function LastLine(FileName: String): String;
 var
   Lines: TArrayOfString;
@@ -241,10 +288,15 @@ begin
       AddToPath(BinDir);
   end
   else
+  begin
+    { The log's last line says what went wrong; guessing ("the internet") misled. }
+    Line := LastLine(Log);
+    if Line <> '' then
+      Line := #13#10#13#10 + 'What went wrong: ' + Copy(Line, 1, 300);
     SuppressibleMsgBox('BetterMarkItDown could not finish setting up (code ' +
-      IntToStr(ResultCode) + '). Most often the internet connection dropped. Run this ' +
-      'installer again to retry; the details are in ' + ExpandConstant('{app}\install.log') +
-      '.', mbError, MB_OK, IDOK);
+      IntToStr(ResultCode) + ').' + Line + #13#10#13#10 + 'Run this installer again to ' +
+      'retry. All the details are in ' + Log + '.', mbError, MB_OK, IDOK);
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
