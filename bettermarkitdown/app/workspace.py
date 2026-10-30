@@ -13,7 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import unquote
 
-from .. import formats, library, ocr, runs
+from .. import formats, library, ocr, runs, verify
 from ..core import assemble_output, parse_pages
 from .server import HTTPError, Response, job_json, route
 
@@ -162,6 +162,11 @@ def document(app, body) -> dict:
     inspecting = app.jobs.running(f"inspect:{doc.id}")
     if not doc.inspection and not inspecting and doc.kind in (".pdf", *formats.NATIVE):
         inspecting = _start_inspect(app, doc)        # added by an older version, or failed
+    if (doc.checks and doc.checks_wording != verify.NOTES_WORDING
+            and not (running and running.info.get("doc") == doc.id)):
+        # Notes kept from an older version, in its words: check again (free, offline).
+        library.check_pages(doc, doc.page_pdf() or doc.source())
+        doc.save()
     office = formats.office_installed("Word" if doc.kind in (".doc", ".docx")
                                       else "PowerPoint") or bool(formats.find_soffice())
     return {"document": _summary(doc), "engine": _engine(),

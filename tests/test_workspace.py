@@ -16,7 +16,7 @@ from urllib.parse import quote
 import pytest
 from apphttp import call, wait
 
-from bettermarkitdown import core, library
+from bettermarkitdown import core, library, verify
 
 pymupdf = pytest.importorskip("pymupdf")
 
@@ -234,6 +234,26 @@ def test_an_edited_page_is_saved_checked_and_put_back_in_the_result(app, tmp_pat
     assert "Harvest Yields (checked)" in stored.output().read_text(encoding="utf-8")
     _, pages = call(app, "GET", f"/api/doc/pages?id={doc['id']}")
     assert pages["document"]["flagged"] == [1] and pages["scanned"] == [3]
+
+
+def test_notes_kept_from_an_older_version_are_checked_again_in_todays_words(app, tmp_path):
+    """Notes are kept with the file, so a file converted before the plain wording still
+    showed 'Markup: unescaped dollar sign, ...' until it was checked again."""
+    doc = converted(app, tmp_path)
+    stored = library.get(doc["id"])
+    page = stored.work_dir() / "pages" / "0001.md"
+    page.write_text(page.read_text(encoding="utf-8") + "\nBalance owing $0.00 today\n",
+                    encoding="utf-8")
+    stored.checks = {"1": ["Markup: unescaped dollar sign, probably money '$0.00 today'; "
+                           "write \\$."]}
+    stored.checks_wording = 0
+    stored.save()
+
+    _, out = call(app, "GET", f"/api/doc?id={doc['id']}")
+    notes = out["document"]["checks"]["1"]
+    assert any(n.startswith("A dollar amount, $0.00,") for n in notes)
+    assert not any(n.startswith("Markup:") for n in notes)
+    assert library.get(doc["id"]).checks_wording == verify.NOTES_WORDING
 
 
 def test_a_page_not_converted_yet_cannot_be_saved(app, tmp_path):

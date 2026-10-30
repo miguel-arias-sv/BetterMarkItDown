@@ -298,7 +298,7 @@ function runPanel(job, id) {
     stop.disabled = true;
     try { await api("/api/doc/stop", { job: job.id }); } catch (err) { line.textContent = err.message; }
   });
-  const play = h("button", { type: "button", hidden: true }, "Play while you wait");
+  const play = h("button", { type: "button", hidden: true }, "Play LlamaGame while you wait");
   play.addEventListener("click", () => { Game.open(); tellGame(Run.job); play.hidden = true; });
   const node = h("div", { class: "run" }, h("h2", { text: "Converting" }), bar, line,
     h("p", { class: "explain", text: "You can leave this page, or close it: the conversion goes on, and finished pages are kept even if it stops." }),

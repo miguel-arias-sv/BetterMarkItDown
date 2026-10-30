@@ -127,7 +127,7 @@ const Game = (() => {
     box = h("section", "game corner-br");
     box.setAttribute("aria-label", "A game to play while you wait");
     const tools = h("div", "game-tools");
-    const title = h("span", "game-title", "Llama run");
+    const title = h("span", "game-title", "LlamaGame");
     const full = h("button", "link", "Full screen");
     const pop = h("button", "link", "Pop out");
     const close = h("button", "link", "Close");
@@ -377,6 +377,77 @@ const Game = (() => {
     raf = win.requestAnimationFrame(tick);
   }
 
+  // --- while a screen loads: the same llama, running with nothing in its way ---------------
+  // Space, Up or a tap jumps; Down ducks. No obstacles and no score; the message runs
+  // behind it. It stops by itself once the screen takes its place.
+  function runner(text) {
+    const RW = 160, RH = 56, FLOOR = 48, X = 22;
+    const c = document.createElement("canvas");
+    c.className = "runner";
+    c.width = RW;
+    c.height = RH;
+    c.tabIndex = 0;
+    c.setAttribute("aria-label", `${text}. Space: jump, Down arrow: duck.`);
+    const x = c.getContext("2d");
+    x.imageSmoothingEnabled = false;
+    const me = { y: FLOOR, vy: 0, ducking: false };
+    let travelled = 0, last = 0, seen = false, frames = 0;
+    const jump = () => { if (me.y >= FLOOR) { me.vy = -130; me.ducking = false; } };
+    const onKey = (ev) => {
+      if (ev.target !== c && ev.target !== document.body) return;
+      if ([" ", "ArrowUp"].includes(ev.key)) { ev.preventDefault(); jump(); }
+      else if (ev.key === "ArrowDown") { ev.preventDefault(); me.ducking = me.y >= FLOOR; }
+    };
+    const onKeyUp = (ev) => { if (ev.key === "ArrowDown") me.ducking = false; };
+    c.addEventListener("pointerdown", (ev) => { ev.preventDefault(); jump(); });
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+
+    const tick = (now) => {
+      frames += 1;
+      if (!c.isConnected) {
+        // Not on the page yet, or gone: wait a moment for it, then stop listening.
+        if (seen || frames > 120) {
+          window.removeEventListener("keydown", onKey);
+          window.removeEventListener("keyup", onKeyUp);
+          return;
+        }
+        requestAnimationFrame(tick);
+        return;
+      }
+      seen = true;
+      const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
+      last = now;
+      const still = reduced();
+      if (!still) travelled += 50 * dt;
+      me.vy += 420 * dt;
+      me.y = Math.min(FLOOR, me.y + me.vy * dt);
+      if (me.y >= FLOOR) me.vy = 0;
+
+      x.fillStyle = "#eef3f7";
+      x.fillRect(0, 0, RW, RH);
+      x.fillStyle = "#d5dfe8";
+      const drift = (travelled * 0.25) % 40;
+      for (let sx = -drift; sx < RW; sx += 40) { x.fillRect(sx, 16, 22, 30); x.fillRect(sx + 25, 26, 10, 20); }
+      x.fillStyle = "#5b7390";
+      x.font = "9px system-ui, sans-serif";
+      x.textAlign = "center";
+      const dots = still ? 3 : 1 + Math.floor(now / 400) % 3;
+      x.fillText(text.replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 14);
+      x.fillStyle = "#8a6f55";
+      x.fillRect(0, FLOOR + 1, RW, 1);
+      x.fillStyle = "#c7b299";
+      for (let sx = -(travelled % 12); sx < RW; sx += 12) x.fillRect(sx, FLOOR + 4, 5, 1);
+      const pose = me.ducking ? "duck" : me.y < FLOOR || still ? "run1"
+        : (Math.floor(travelled / 9) % 2 ? "run1" : "run2");
+      const img = sprite(pose);
+      x.drawImage(img, X, Math.round(me.y - img.height + 1));
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return c;
+  }
+
   // --- what the page tells it ---------------------------------------------------------------
   // Opened from the header with nothing converting: no bar, no progress line.
   function idle() {
@@ -411,5 +482,6 @@ const Game = (() => {
     draw();
   }
 
-  return { open, close: closeGame, idle, progress, finish, isOpen: () => Boolean(box && box.isConnected) };
+  return { open, close: closeGame, idle, progress, finish, runner,
+           isOpen: () => Boolean(box && box.isConnected) };
 })();

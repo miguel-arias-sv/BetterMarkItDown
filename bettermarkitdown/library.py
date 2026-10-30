@@ -109,6 +109,7 @@ class Document:
     last_run: dict = field(default_factory=dict)
     edited: list[int] = field(default_factory=list)    # pages changed by hand (0: whole file)
     checks: dict[str, list[str]] = field(default_factory=dict)  # page -> what to look at
+    checks_wording: int = 0    # verify.NOTES_WORDING when every page was last checked
 
     # --- where things are -----------------------------------------------------------
     def home(self) -> Path:
@@ -258,9 +259,11 @@ def converted(doc: Document) -> list[int]:
 
 def check_pages(doc: Document, pdf: Path, pages: list[int] | None = None) -> None:
     """Run --verify's checks (free, offline) and keep what to look at, per page."""
-    from .verify import add_render_check, page_notes, verify
+    from .verify import NOTES_WORDING, add_render_check, page_notes, verify
 
     done = converted(doc)
+    if pages is None:
+        doc.checks_wording = NOTES_WORDING
     targets = [p for p in (pages or done) if p in done]
     if not targets:
         return

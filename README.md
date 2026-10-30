@@ -186,7 +186,7 @@ like, and watch the pages, time left and money spent. A converted file then open
 its review: each page's picture next to its Markdown, with the maths drawn, to check and
 edit, starting with the pages the free check flags. Download the `.md` or a `.zip` with its
 pictures. A conversion expected to take more than two minutes offers a small game while you
-wait; it never starts by itself, and **Play** in the header opens it any time. The header
+wait; it never starts by itself, and **LlamaGame** in the header opens it any time. The header
 also switches the page between light, dark and your system's colours.
 
 The page's server listens on 127.0.0.1 only and needs the one-time token in the address it

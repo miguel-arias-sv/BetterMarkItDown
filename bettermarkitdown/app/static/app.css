@@ -383,5 +383,19 @@ select.to-check { width: auto; padding: 8px 10px; }
 .game.popped .game-tools button:not(:last-child) { display: none; }
 body.game-pip { margin: 0; background: var(--card); }
 
+/* The llama running while a screen loads. */
+div.loading { text-align: center; padding-top: 24px; }
+.runner {
+  display: block;
+  width: min(100%, 480px);
+  height: auto;
+  aspect-ratio: 160 / 56;
+  margin: 0 auto 8px;
+  image-rendering: pixelated;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.runner:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
 h3 { font-size: 1rem; margin: 16px 0 4px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }

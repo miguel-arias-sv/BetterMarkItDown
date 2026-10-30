@@ -94,15 +94,26 @@ const screens = {};
 
 async function render(name, args) {
   root.classList.toggle("wide", Boolean(screens[name].wide));
-  root.replaceChildren(h("p", { class: "loading", text: "Loading..." }));
+  const waiting = h("p", { class: "loading", text: "Loading..." });
+  root.replaceChildren(waiting);
+  // Most screens are ready at once. One that takes longer (a file opening beside its
+  // review) gets the llama running while it loads, so a short wait has something to see.
+  const slow = setTimeout(() => {
+    if (!waiting.isConnected) return;
+    const text = name === "doc" || name === "review" ? "Opening your file" : "Loading";
+    waiting.replaceWith(h("div", { class: "loading" }, Game.runner(text),
+      h("p", { class: "explain", text: "Space or tap: jump. Down arrow: duck." })));
+  }, 300);
   try {
     const node = await screens[name](...args);
+    clearTimeout(slow);
     // A screen can also ask for the full width itself, for one layout and not another.
     root.classList.toggle("wide", Boolean(screens[name].wide) || node.dataset.wide === "1");
     root.replaceChildren(node);
     const heading = root.querySelector("h1");
     if (heading) { heading.tabIndex = -1; heading.focus(); }
   } catch (err) {
+    clearTimeout(slow);
     root.replaceChildren(card("Something went wrong", null,
       h("p", { class: "error", text: err.message }),
       h("div", { class: "actions" },

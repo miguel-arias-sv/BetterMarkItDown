@@ -61,12 +61,14 @@ files, study notes for pages a model refuses, and a mode for AI agents.
     Measured on the rest of a 1,340-page econometrics textbook with Gemini 3.6 Flash:
     352 pages for $1.21 in about 10 minutes, three pages at a time; the page's estimate was
     within 5% of the cost.
-- **"Play while you wait":** during a conversion expected to take more than 2 minutes, a
-  small game is offered (never started by itself): a llama hops over stacks of paper,
+- **LlamaGame, "play while you wait":** during a conversion expected to take more than 2
+  minutes, a small game is offered (never started by itself): a llama hops over stacks of paper,
   ducks under flying staplers and collects loose pages. It plays in a corner of the page,
   full screen, or popped out above other windows in Chrome and Edge, with the progress bar
-  on top, and says when your file is ready. Settings can turn the offer off. **Play** in
-  the page's header opens it at any time.
+  on top, and says when your file is ready. Settings can turn the offer off. **LlamaGame**
+  in the page's header opens it at any time, and a screen that takes a moment to load (a
+  file opening beside its review) shows the llama running, with nothing in its way, while
+  it loads: Space jumps, Down ducks.
 - **Light, dark or automatic colours**: a button in the page's header switches between
   them, and the choice is kept.
 - **Agent mode: AI agents can use BetterMarkItDown on their own.**
@@ -159,7 +161,8 @@ files, study notes for pages a model refuses, and a mode for AI agents.
   `$0.00` was copied as it stands, and Markdown viewers that draw maths read a `$` as the
   start of a formula; the check then flagged the page. The free text path now writes
   `\$0.00`, which shows as $0.00 everywhere, and a Word file's money is written the same
-  way.
+  way. A file checked by an earlier version is checked again when it is opened, so its
+  notes use the new plain words.
 - **A refused request could reach the page as a network error.** When the server refused a
   request before reading what it sent, Windows reset the connection, now and then, instead
   of delivering the refusal. The server now reads the rest of the request first. This was

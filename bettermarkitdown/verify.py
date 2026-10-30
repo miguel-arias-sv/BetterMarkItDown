@@ -474,6 +474,9 @@ def page_notes(r: PageCheck, limit: int = 12) -> list[str]:
 
 # The --verify report names each fault for whoever fixes the Markdown; the setup page
 # says the same in plain words. Anything not listed here keeps its report wording.
+# The library keeps each page's notes, so change NOTES_WORDING with the words: a file
+# checked with older words is then checked again when it is opened.
+NOTES_WORDING = 2
 _PLAIN = [
     (r"unescaped dollar sign, probably money '(\$[\d,.]*)",
      "A dollar amount, {0}, may show as the start of a formula in some Markdown viewers. "
