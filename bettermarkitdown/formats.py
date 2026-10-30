@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import core
+from . import notes as study
 from .config import Options, Result
 from .prompts import FIGURE_PROMPT
 
@@ -89,6 +90,8 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
     client = core.vision_client(opts)
     text = MarkItDown(enable_plugins=False).convert(str(source),
                                                     keep_data_uris=True).text_content or ""
+    # Word's equations come through as $...$ formulas, so only money is escaped here.
+    text = study.escape_money(text)
     pictures = list(_PICTURE.finditer(text))
 
     meter = core.Meter(*opts.prices(), opts.budget_usd, abort)

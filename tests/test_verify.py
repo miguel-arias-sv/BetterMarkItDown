@@ -420,3 +420,27 @@ def test_the_converters_own_pictures_and_labels_are_not_page_text():
           "**Figure 85.1 - transcribed by gemini-3.6-flash:**\n\n> A bar chart.\n\n"
           "![Page 85 scan](Book%20Name_assets/page_0085.png)")
     assert check_page(pdf_text, md, 85).status == "ok"
+
+
+def test_the_setup_page_gets_each_fault_in_plain_words():
+    """The --verify report names faults for whoever fixes the Markdown; a person reviewing
+    their file sees what is wrong and what to do, without the jargon."""
+    from bettermarkitdown.verify import PageCheck, markup_problems, math_problems, page_notes
+
+    md = ("| Balance | $0.00     |\n\nbook.$^{24}$ text\n\n[^3]:\n\n"
+          r"$$a = b \tag{1} \\ c = d \tag{2}$$" "\n\n" r"\begin{aligned} x" "\n")
+    r = PageCheck(page=1, pdf_words=10, math=math_problems(md), markup=markup_problems(md))
+    notes = page_notes(r)
+    assert len(notes) == len(r.math) + len(r.markup) == 6
+    assert (r"Maths code outside a formula (\begin{aligned}) shows as code. Put the equation "
+            "between $$ and $$, or write a lone equation number as (n)." in notes)
+    assert ("A dollar amount, $0.00, may show as the start of a formula in some Markdown "
+            r"viewers. Put a backslash before it, \$0.00, and it shows as money everywhere."
+            in notes)
+    assert (r"A formula opens \begin{aligned} without its \end{aligned}, so it will not show."
+            in notes)
+    assert ("A formula has more than one equation number, so it will not show. Give each "
+            "numbered line its own $$...$$." in notes)
+    assert "Footnote 3 has no text." in notes
+    assert any(n.startswith("A footnote number is written as a formula ($^{24}$)") for n in notes)
+    assert not any(n.startswith(("Markup:", "Broken maths:")) or "unescaped" in n for n in notes)

@@ -378,8 +378,16 @@ const Game = (() => {
   }
 
   // --- what the page tells it ---------------------------------------------------------------
+  // Opened from the header with nothing converting: no bar, no progress line.
+  function idle() {
+    if (!box) return;
+    bar.hidden = true;
+    label.textContent = "";
+  }
+
   function progress(fraction, text) {
     if (!box) return;
+    bar.hidden = false;
     if (fraction === null) bar.removeAttribute("value");
     else bar.value = Math.max(0, Math.min(1, fraction));
     label.textContent = text;
@@ -403,5 +411,5 @@ const Game = (() => {
     draw();
   }
 
-  return { open, close: closeGame, progress, finish, isOpen: () => Boolean(box && box.isConnected) };
+  return { open, close: closeGame, idle, progress, finish, isOpen: () => Boolean(box && box.isConnected) };
 })();

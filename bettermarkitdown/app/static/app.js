@@ -60,8 +60,25 @@ const gb = (bytes) => (bytes / 1e9).toFixed(2);
 const fromEnvironment = (p) => Boolean(p.key_source) && p.key_source !== "password store";
 const money = (usd) => (usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`);
 
+// --- colours: the system's, or light or dark, from the header's button ----------------------
+
+const THEMES = ["auto", "light", "dark"];
+const THEME_LABELS = { auto: "◐ Auto", light: "☀ Light", dark: "☾ Dark" };
+const THEME_HELP = { auto: "Colours follow your system", light: "Light colours", dark: "Dark colours" };
+
+function applyTheme(theme) {
+  if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  const button = document.getElementById("nav-theme");
+  const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  button.textContent = THEME_LABELS[theme] || THEME_LABELS.auto;
+  button.title = `${THEME_HELP[theme] || THEME_HELP.auto}. Click for: ${THEME_HELP[next].toLowerCase()}.`;
+  button.setAttribute("aria-label", button.title);
+}
+
 async function refresh() {
   S.state = await api("/api/state");
+  applyTheme(S.state.settings.theme);
   document.getElementById("nav-settings").hidden = !S.state.settings.setup_done;
   document.getElementById("nav-library").hidden = !S.state.settings.setup_done;
 }
@@ -80,6 +97,8 @@ async function render(name, args) {
   root.replaceChildren(h("p", { class: "loading", text: "Loading..." }));
   try {
     const node = await screens[name](...args);
+    // A screen can also ask for the full width itself, for one layout and not another.
+    root.classList.toggle("wide", Boolean(screens[name].wide) || node.dataset.wide === "1");
     root.replaceChildren(node);
     const heading = root.querySelector("h1");
     if (heading) { heading.tabIndex = -1; heading.focus(); }
@@ -602,6 +621,12 @@ async function quit() {
 
 document.getElementById("nav-library").addEventListener("click", () => show("library"));
 document.getElementById("nav-settings").addEventListener("click", () => show("settings"));
+document.getElementById("nav-theme").addEventListener("click", async () => {
+  const theme = THEMES[(THEMES.indexOf(S.state.settings.theme) + 1) % THEMES.length];
+  applyTheme(theme);
+  S.state.settings.theme = theme;
+  try { await save({ theme }); } catch (_) { /* this page keeps it; the next launch may not */ }
+});
 window.addEventListener("beforeunload", (ev) => {
   if (S.unsaved && S.unsaved()) { ev.preventDefault(); ev.returnValue = ""; }
 });

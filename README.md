@@ -182,10 +182,12 @@ Once set up, the same page is a **workspace**. Add PDF, Word and PowerPoint file
 library on your computer, and each gets a free look first: scanned pages, equations set as
 pictures, figures, chapters, and an estimate of the cost (online service) or time (local
 model). Convert all of it, a chapter, or a few pages to measure, with a spending cap if you
-like, and watch the pages, time left and money spent. Then review each page's picture next
-to its Markdown, with the maths drawn, edit it, and download the `.md` or a `.zip` with its
+like, and watch the pages, time left and money spent. A converted file then opens beside
+its review: each page's picture next to its Markdown, with the maths drawn, to check and
+edit, starting with the pages the free check flags. Download the `.md` or a `.zip` with its
 pictures. A conversion expected to take more than two minutes offers a small game while you
-wait; it never starts by itself.
+wait; it never starts by itself, and **Play** in the header opens it any time. The header
+also switches the page between light, dark and your system's colours.
 
 The page's server listens on 127.0.0.1 only and needs the one-time token in the address it
 opens, so other websites and other computers cannot use it. It stops when you press Quit,

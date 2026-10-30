@@ -468,9 +468,53 @@ def page_notes(r: PageCheck, limit: int = 12) -> list[str]:
     if r.notes:
         notes.append("Study notes, not the page's text: the model refused to transcribe this "
                      "page. For exact wording and figures, read it in the original.")
-    notes += [f"Broken maths: {problem}." for problem in r.math]
-    notes += [f"Markup: {problem}." for problem in r.markup]
+    notes += [_in_plain_words(problem) for problem in r.math + r.markup]
     return notes
+
+
+# The --verify report names each fault for whoever fixes the Markdown; the setup page
+# says the same in plain words. Anything not listed here keeps its report wording.
+_PLAIN = [
+    (r"unescaped dollar sign, probably money '(\$[\d,.]*)",
+     "A dollar amount, {0}, may show as the start of a formula in some Markdown viewers. "
+     "Put a backslash before it, \\{0}, and it shows as money everywhere."),
+    (r"unmatched \$\$", "A formula is missing its opening or closing $$, so the maths after "
+                        "it may not show."),
+    (r"blank line inside a display equation",
+     "A formula has a blank line inside it, which stops it showing. Remove the blank line."),
+    (r"review note inside a display equation",
+     "A review note sits inside a formula, which stops it showing. Move it below the $$."),
+    (r"more than one \\tag",
+     "A formula has more than one equation number, so it will not show. Give each numbered "
+     "line its own $$...$$."),
+    (r"unmatched \\begin\{(.+?)\}",
+     "A formula opens \\begin{{{0}}} without its \\end{{{0}}}, so it will not show."),
+    (r"footnote \[\^(\w+)\] has no text", "Footnote {0} has no text."),
+    (r"footnote \[\^(\w+)\] is a placeholder",
+     "Footnote {0} holds a placeholder, not the book's note. Its text is probably printed "
+     "elsewhere, such as the end of the chapter."),
+    (r"footnote \[\^(\w+)\] repeats", "Footnote {0} repeats a sentence from the page."),
+    (r"footnote marker written as math '(.+?)'",
+     "A footnote number is written as a formula ({0}), so it shows as a superscript, not "
+     "a footnote. Write it as [^n]."),
+    (r"note label fused to its text '(.+?)'",
+     "A footnote's number runs into its text ({0}). Write it as [^n]: followed by the text."),
+    (r"LaTeX table command",
+     "A table uses LaTeX commands (such as \\hline) that Markdown tables cannot show."),
+    (r"LaTeX outside \$\$\.\.\.\$\$ '(.+?)'",
+     "Maths code outside a formula ({0}) shows as code. Put the equation between $$ and "
+     "$$, or write a lone equation number as (n)."),
+    (r"link target with a space '(.+?)'",
+     "A link with a space in its address shows as plain text: {0}"),
+]
+
+
+def _in_plain_words(problem: str) -> str:
+    for pattern, text in _PLAIN:
+        m = re.match(pattern, problem)
+        if m:
+            return text.format(*(g.replace("\\\\", "\\") for g in m.groups()))
+    return problem[:1].upper() + problem[1:] + "."
 
 
 def format_report(results: list[PageCheck], limit: int = 20,

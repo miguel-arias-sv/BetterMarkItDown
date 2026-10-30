@@ -46,11 +46,12 @@ files, study notes for pages a model refuses, and a mode for AI agents.
   - **Progress while it converts:** pages done, the page being read, the time left measured
     from this run's own pages, and the money spent so far. Stop at any time; finished pages
     are kept, and converting again continues where it stopped.
-  - **Review side by side:** each page's picture next to its Markdown, which you can edit,
-    with a preview that draws the maths (KaTeX) and the pictures. Saving puts the edit back
+  - **Review side by side:** a converted file opens beside its review, with the file's
+    details in a narrow column on the left. Each page's picture sits next to its Markdown,
+    which you can edit, with a preview that draws the maths (KaTeX) and the pictures. Saving puts the edit back
     in the result and checks the page again against the PDF's own text. Pages the free
-    check flags are listed to go through first. "Transcribe this page again" asks the model
-    anew.
+    check flags are listed to go through first, each with what is wrong and what to do in
+    plain words. "Transcribe this page again" asks the model anew.
   - **Take it away:** download the `.md`, or a `.zip` with its pictures, or open the folder.
   - Without an AI service, files convert as text only, for free, and pages with little or
     no text layer are listed.
@@ -64,7 +65,10 @@ files, study notes for pages a model refuses, and a mode for AI agents.
   small game is offered (never started by itself): a llama hops over stacks of paper,
   ducks under flying staplers and collects loose pages. It plays in a corner of the page,
   full screen, or popped out above other windows in Chrome and Edge, with the progress bar
-  on top, and says when your file is ready. Settings can turn the offer off.
+  on top, and says when your file is ready. Settings can turn the offer off. **Play** in
+  the page's header opens it at any time.
+- **Light, dark or automatic colours**: a button in the page's header switches between
+  them, and the choice is kept.
 - **Agent mode: AI agents can use BetterMarkItDown on their own.**
   - **`--json`** on a conversion, `--verify`, `--toc`, `--list-models` and `providers`:
     one JSON object per line (progress events, then a summary, or an error), and nothing
@@ -151,6 +155,11 @@ files, study notes for pages a model refuses, and a mode for AI agents.
 
 ### Fixed (setup page)
 
+- **Dollar amounts read from a PDF's text layer could show as formulas.** A statement's
+  `$0.00` was copied as it stands, and Markdown viewers that draw maths read a `$` as the
+  start of a formula; the check then flagged the page. The free text path now writes
+  `\$0.00`, which shows as $0.00 everywhere, and a Word file's money is written the same
+  way.
 - **A refused request could reach the page as a network error.** When the server refused a
   request before reading what it sent, Windows reset the connection, now and then, instead
   of delivering the refusal. The server now reads the rest of the request first. This was

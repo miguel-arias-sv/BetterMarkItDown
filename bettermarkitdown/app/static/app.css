@@ -1,5 +1,7 @@
-/* Plain colours, system font, nothing loaded from elsewhere. */
+/* Plain colours, system font, nothing loaded from elsewhere. Light or dark follows the
+   system, unless the header's Theme button set data-theme on <html>. */
 :root {
+  color-scheme: light;
   --bg: #f6f6f3;
   --card: #ffffff;
   --text: #222222;
@@ -13,7 +15,8 @@
   --focus: #2f6fdb;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #17191c;
     --card: #22252a;
     --text: #e8e8e6;
@@ -26,6 +29,20 @@
     --error: #ff8a80;
     --focus: #8fb3e8;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #17191c;
+  --card: #22252a;
+  --text: #e8e8e6;
+  --muted: #a3a8ae;
+  --line: #3a3e44;
+  --primary: #8fb3e8;
+  --primary-text: #10161f;
+  --ok: #7fcf8f;
+  --warn: #f0b35c;
+  --error: #ff8a80;
+  --focus: #8fb3e8;
 }
 
 * { box-sizing: border-box; }
@@ -44,6 +61,7 @@ body {
   padding: 16px;
 }
 .brand { font-weight: 700; color: var(--primary); }
+.top nav { display: flex; flex-wrap: wrap; justify-content: flex-end; }
 main { max-width: 760px; margin: 0 auto; padding: 0 16px 48px; }
 
 .card {
@@ -196,12 +214,25 @@ button.danger { color: var(--error); }
 .run { border-left: 4px solid var(--primary); padding: 0 0 4px 16px; margin: 16px 0; }
 .run h2 { margin-top: 8px; }
 
+/* A converted file: its details in a narrow column, the review beside them. */
+.doc-layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; align-items: start; }
+.doc-side { padding: 18px; position: sticky; top: 12px; max-height: calc(100vh - 120px); overflow: auto; }
+.doc-side h1 { font-size: 1.25rem; }
+.doc-side h2 { margin-top: 18px; }
+.doc-side .actions { flex-direction: column; align-items: stretch; margin-top: 10px; }
+.doc-side .actions.end { flex-direction: row; flex-wrap: wrap; justify-content: space-between; margin-top: 24px; }
+.doc-side a.button { text-align: center; }
+.doc-side details > summary { font-weight: 600; }
+@media (min-width: 901px) { .doc-layout .review-body { height: calc(100vh - 365px); } }
+@media (max-width: 1100px) {
+  .doc-layout { grid-template-columns: minmax(0, 1fr); }
+  .doc-side { position: static; max-height: none; }
+}
+
 /* --- review ------------------------------------------------------------------------ */
 .review { padding: 16px 20px; }
-.review-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.review-head h1 { font-size: 1.25rem; margin: 0; }
+.review-head h2 { font-size: 1.2rem; margin: 0; }
 .review-head .intro { margin: 2px 0 0; }
-.review-head .actions { margin: 0; }
 .page-nav, .review-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; }
 .page-nav button, .review-tools button { padding: 8px 12px; }
 .page-no { width: 5.5em; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;

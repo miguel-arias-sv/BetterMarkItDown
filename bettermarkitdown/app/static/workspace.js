@@ -80,6 +80,13 @@ function tellGame(job) {
               () => show("doc", job.info.doc));
 }
 
+// The header's Play: the game at any time, with the progress bar only while a file converts.
+document.getElementById("nav-play").addEventListener("click", () => {
+  Game.open();
+  if (Run.job && Run.job.status === "running") tellGame(Run.job);
+  else Game.idle();
+});
+
 // --- the library ----------------------------------------------------------------------------
 
 function engineNotice(engine) {
@@ -266,7 +273,8 @@ function lastRunSummary(d) {
     out.push(h("p", { text: `Converted on ${r.when}, as text only: the pictures are saved next to the result, without a description.` }));
   } else {
     out.push(h("p", { text: `${r.trial ? "Tried" : "Converted"} ${r.converted} of ${plural(r.selected, unit)} on ${r.when}, in ${duration(r.seconds)}, ${used}.` +
-                            (r.cost ? ` It cost ${money(r.cost)}.` : "") }));
+                            (r.cost ? ` It cost ${money(r.cost)}.`
+                              : r.text_only || r.provider === "ollama" ? " Free: nothing was paid for." : "") }));
   }
   if (r.trial && r.converted && r.cost) {
     const left = d.page_count - d.converted.length;
@@ -325,7 +333,10 @@ function inspectingPanel(job, id) {
   return h("div", {}, bar, line);
 }
 
-screens.doc = async (id) => {
+// A converted file opens beside its review: the file's details in a narrow column, the
+// pages on the right. Before that, and while it converts, the file has the page to itself.
+// `page` (optional) is the page to show in the review.
+screens.doc = async (id, page) => {
   await refresh();
   const data = await api(`/api/doc?id=${encodeURIComponent(id)}`);
   const d = data.document;
@@ -333,25 +344,24 @@ screens.doc = async (id) => {
   const running = data.converting && data.converting.status === "running" ? data.converting : null;
   if (running) watchRun(running);
   const mine = running && running.info.doc === d.id;
+  const beside = d.output_ready && !mine;
 
   const intro = [KINDS[d.kind], d.pages ? plural(d.pages, "page") : "", size(d.size), `added ${d.added.slice(0, 10)}`]
     .filter(Boolean).join(" · ");
   const body = [];
   const looking = data.inspecting && data.inspecting.status === "running";
-  body.push(looking ? inspectingPanel(data.inspecting, id) : inspectionFacts(d));
+  const facts = looking ? [inspectingPanel(data.inspecting, id)] : inspectionFacts(d);
+  if (!beside) body.push(...facts);
 
   if (mine) body.push(runPanel(running, id));
   else body.push(...lastRunSummary(d));
 
   if (d.output_ready) {
-    const firstToCheck = d.flagged[0] || (d.paged ? d.converted[0] || 1 : 0);
     const status = h("p", { role: "status" });
     body.push(
       h("h2", { text: "Result" }),
       h("p", { class: "path", text: d.output }),
       h("div", { class: "actions" },
-        h("button", { type: "button", class: "primary", onclick: () => show("review", d.id, String(firstToCheck)) },
-          d.flagged.length ? "Review: start with the pages to check" : "Review and edit"),
         h("a", { class: "button", href: fileUrl("/api/doc/download", { id: d.id }), download: "" }, "Download .md"),
         h("a", { class: "button", href: fileUrl("/api/doc/download", { id: d.id, format: "zip" }), download: "" }, "Download .zip, with pictures"),
         h("button", { type: "button", onclick: async () => {
@@ -359,7 +369,14 @@ screens.doc = async (id) => {
         } }, "Open the folder")),
       status);
   }
-  if (!mine) body.push(convertForm(d, engine, data, running));
+  if (beside) {
+    if (facts.length) body.push(h("details", {}, h("summary", { text: "What is in the file" }), ...facts));
+    const unfinished = d.paged && d.page_count && d.converted.length < d.page_count;
+    body.push(h("details", { open: Boolean(unfinished) },
+      h("summary", { text: unfinished ? "Convert the rest" : "Convert again" }), convertForm(d, engine, data, running, false)));
+  } else if (!mine) {
+    body.push(convertForm(d, engine, data, running));
+  }
 
   body.push(h("div", { class: "actions end" },
     h("button", { type: "button", class: "link", onclick: back }, "Back to your files"),
@@ -371,11 +388,17 @@ screens.doc = async (id) => {
       replace("library");
     } }, "Remove from the library")));
 
-  return card(d.name, intro, ...body);
+  if (!beside) return card(d.name, intro, ...body);
+  const side = card(d.name, intro, ...body);
+  side.classList.add("doc-side");
+  return h("div", { class: "doc-layout", "data-wide": "1" }, side, await reviewPanel(d, engine, page));
 };
 
-function convertForm(d, engine, data, running) {
-  const nodes = [h("h2", { text: d.output_ready ? "Convert more" : "Convert" })];
+// The review on its own screen: links and history from before it moved beside the file.
+screens.review = (id, page) => screens.doc(id, page);
+
+function convertForm(d, engine, data, running, heading = true) {
+  const nodes = heading ? [h("h2", { text: d.output_ready ? "Convert more" : "Convert" })] : [];
   if (running) {
     nodes.push(h("p", { class: "notice" }, `Another file is being converted: ${running.info.name}. One file converts at a time. `,
       h("button", { type: "button", class: "link", onclick: () => show("doc", running.info.doc) }, "Go to it")));
@@ -495,14 +518,13 @@ function saveView(view) {
   try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (_) { /* private window */ }
 }
 
-screens.review = async (id, pageArg) => {
-  const data = await api(`/api/doc?id=${encodeURIComponent(id)}`);
-  const d = data.document;
-  const engine = data.engine;
+// The pages of a converted file, beside the original: opens on the first page to check.
+async function reviewPanel(d, engine, pageArg) {
+  const id = d.id;
   const paged = d.paged;
   const total = paged ? d.page_count : 0;
   const hasImage = d.kind === ".pdf" || d.as_pages;
-  let page = paged ? Math.min(Math.max(1, Number(pageArg) || d.flagged[0] || 1), total) : 0;
+  let page = paged ? Math.min(Math.max(1, Number(pageArg) || d.flagged[0] || d.converted[0] || 1), total) : 0;
   let saved = "";
   let current = {};
   const view = { mode: "both", image: true, ...loadView() };
@@ -556,7 +578,7 @@ screens.review = async (id, pageArg) => {
     if (!force && !confirmLeave()) { pageInput.value = page; return; }
     page = n;
     pageInput.value = n;
-    S.history[S.history.length - 1] = ["review", [id, String(n)]];
+    S.history[S.history.length - 1] = ["doc", [id, String(n)]];
     setState("Loading...");
     current = await api(`/api/doc/page?id=${encodeURIComponent(id)}&page=${n}`);
     if (hasImage && paged) { image.src = fileUrl("/api/doc/image", { id: d.id, page: n }); image.alt = `Page ${n} of the original`; }
@@ -659,13 +681,12 @@ screens.review = async (id, pageArg) => {
     h("label", { class: "inline" }, "Page ", pageInput, ` of ${total}`), next, toCheck) : null;
   return h("section", { class: "card review" },
     h("div", { class: "review-head" },
-      h("div", {}, h("h1", { text: d.name }), h("p", { class: "intro", text: paged ? "Each page beside the original. Edits are saved into the result." : "The whole file. Edits are saved into the result." })),
-      h("div", { class: "actions" }, h("button", { type: "button", class: "link", onclick: back }, "Back to the file"))),
+      h("h2", { text: d.flagged.length ? `Review: ${plural(d.flagged.length, "page")} to check` : "Review" }),
+      h("p", { class: "intro", text: paged ? "Each page beside the original. Edits are saved into the result." : "The whole file. Edits are saved into the result." })),
     nav,
     h("div", { class: "review-tools" },
       h("div", { class: "tabs", role: "group", "aria-label": "View" }, tabs),
       hasImage && paged ? h("label", { class: "check inline" }, showImage, " Show the page") : null,
       h("span", { class: "spacer" }), state, again, save),
     notes, body);
-};
-screens.review.wide = true;
+}

@@ -302,7 +302,13 @@ def _handler_for(app: App):
             name = FILES[path]
             body = (STATIC / name).read_bytes()
             if name == "index.html":
+                from .. import settings
+
                 body = body.replace(b"__TOKEN__", app.token.encode())
+                # The chosen colours from the first paint, not after the page asks.
+                theme = settings.load().theme
+                if theme in ("light", "dark"):
+                    body = body.replace(b"<html ", f'<html data-theme="{theme}" '.encode(), 1)
             self._send(200, body, TYPES[Path(name).suffix])
 
         def do_GET(self):  # noqa: N802 - the http.server API

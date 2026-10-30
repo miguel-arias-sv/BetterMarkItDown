@@ -87,6 +87,15 @@ def test_settings_are_checked_and_kept(app):
     assert settings.load().model == "claude-haiku-5-5"
 
 
+def test_the_chosen_colours_are_kept_and_in_the_page_from_the_start(app):
+    page = f"/?t={app.token}"
+    assert b"data-theme" not in call(app, "GET", page, token=False, raw=True)[1]  # auto
+    assert call(app, "POST", "/api/settings", {"theme": "purple"})[0] == 400
+    assert call(app, "POST", "/api/settings", {"theme": "dark"})[0] == 200
+    assert settings.load().theme == "dark"
+    assert b'<html data-theme="dark" lang="en">' in call(app, "GET", page, token=False, raw=True)[1]
+
+
 def test_the_saved_choice_becomes_the_default_for_every_run(monkeypatch, tmp_path):
     from bettermarkitdown.config import get_model, resolve_endpoint
 

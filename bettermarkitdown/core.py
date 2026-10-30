@@ -426,6 +426,9 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
         text = markitdown_page_text(md, doc, index)
         if text.startswith("*[MarkItDown failed") and native:
             text = native + "\n\n<!-- text layer read by PyMuPDF: MarkItDown errored here -->"
+        # A text layer holds no formulas, so each $ in it is money or a symbol. Escaped,
+        # a viewer shows "$0.00" instead of starting a formula there.
+        text = re.sub(r"(?<!\\)\$", r"\\$", text)
 
         parts = [f"\n\n---\n\n## Page {index + 1}\n"]
         assets = opts.assets_dir()

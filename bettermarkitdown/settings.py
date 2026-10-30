@@ -15,6 +15,7 @@ from pathlib import Path
 
 AUDIENCES = ("human", "agent", "both")
 HELP_LEVELS = ("assisted", "automatic")
+THEMES = ("auto", "light", "dark")
 
 
 @dataclass
@@ -27,6 +28,7 @@ class Settings:
     # Seconds per page measured by the speed test, per local model: time estimates.
     speed: dict[str, float] = field(default_factory=dict)
     offer_game: bool = True   # "Play while you wait" during long conversions
+    theme: str = "auto"       # the setup page's colours: auto (the system's) | light | dark
 
 
 def config_dir() -> Path:
@@ -74,6 +76,8 @@ def update(**changes) -> Settings:
             raise ValueError(f"audience must be one of {', '.join(AUDIENCES)}")
         if name == "help_level" and value not in HELP_LEVELS:
             raise ValueError(f"help_level must be one of {', '.join(HELP_LEVELS)}")
+        if name == "theme" and value not in THEMES:
+            raise ValueError(f"theme must be one of {', '.join(THEMES)}")
         if name == "provider" and value not in PROVIDERS:
             raise ValueError(f"unknown provider '{value}'")
         if name == "model" and not isinstance(value, str):

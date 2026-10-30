@@ -296,6 +296,29 @@ def test_text_path_reports_pages_whose_equations_it_dropped(tmp_path: Path):
     assert result.pages_small_images == [1]
 
 
+def test_money_from_the_text_layer_is_escaped_so_it_never_starts_a_formula(tmp_path: Path):
+    """A financial statement converted for free: '$0.00 |' in a table was left bare, which
+    viewers read as the start of a formula and the check flagged."""
+    pymupdf = pytest.importorskip("pymupdf")
+    pytest.importorskip("markitdown")
+    from bettermarkitdown.verify import markup_problems
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 90), "Tuition fees charged this term: $1,200.50", fontsize=11)
+    page.insert_text((72, 110), "Balance owing after the payment received: $0.00", fontsize=11)
+    page.insert_text((72, 130), "Paid in full by the student on the due date.", fontsize=11)
+    doc.save(tmp_path / "statement.pdf")
+    doc.close()
+    output = tmp_path / "statement.md"
+    convert(Options(pdf=tmp_path / "statement.pdf", output=output, work_dir=tmp_path / "work",
+                    no_vision=True))
+    md = output.read_text(encoding="utf-8")
+    assert "\\$1,200.50" in md and "\\$0.00" in md
+    assert "\\\\$" not in md                     # escaped once, not twice
+    assert markup_problems(md) == []
+
+
 def test_pages_with_equation_images_are_transcribed_whole(tmp_path: Path, monkeypatch):
     pytest.importorskip("markitdown")
     pytest.importorskip("openai")
