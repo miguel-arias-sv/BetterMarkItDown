@@ -125,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-study-notes", dest="study_notes", action="store_false",
                         help="on a page the model refuses to transcribe, go straight to local "
                              "OCR instead of asking for study notes in the model's own words "
-                             "(up to 3 requests a page)")
+                             "(up to 4 requests a page)")
     parser.add_argument("--fresh", action="store_true",
                         help="redo pages already finished. Overwrites hand edits in the "
                              "work dir")

@@ -108,7 +108,7 @@ like, a desktop icon, both of which open the setup page; and it can put the
 dependencies, including the local OCR fallback:
 
 ```bash
-pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.4.0"
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.5.0"
 bettermarkitdown --version
 ```
 
@@ -176,7 +176,16 @@ have an API key. Then it saves and checks your key, shows you how to get one, or
 model on your computer. Every option comes with what it is good at and its limits, and
 nothing is installed, downloaded or paid for without a click. Your choices become the
 defaults for every command afterwards. Run it again any time, or open Settings to switch
-provider or model.
+provider or model. The installer's Start-menu entry opens this page too.
+
+Once set up, the same page is a **workspace**. Add PDF, Word and PowerPoint files to a
+library on your computer, and each gets a free look first: scanned pages, equations set as
+pictures, figures, chapters, and an estimate of the cost (online service) or time (local
+model). Convert all of it, a chapter, or a few pages to measure, with a spending cap if you
+like, and watch the pages, time left and money spent. Then review each page's picture next
+to its Markdown, with the maths drawn, edit it, and download the `.md` or a `.zip` with its
+pictures. A conversion expected to take more than two minutes offers a small game while you
+wait; it never starts by itself.
 
 The page's server listens on 127.0.0.1 only and needs the one-time token in the address it
 opens, so other websites and other computers cannot use it. It stops when you press Quit,
@@ -227,6 +236,49 @@ python -m bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --workers 4 \
 # Against a model on your own machine
 python -m bettermarkitdown book.pdf --base-url http://localhost:11434/v1 --model qwen3-vl:8b-instruct
 ```
+
+### With an AI agent
+
+Agents such as Claude Code, Codex, Gemini CLI and Antigravity can use the tool on their own,
+and ask you before they spend anything. Give them the skill once:
+
+```bash
+bettermarkitdown agent install     # asks first; for each agent found on this computer
+bettermarkitdown agent status      # which agents have it
+```
+
+The skill is a `SKILL.md` in the open Agent Skills format, the same for every agent: look at
+the file for free, tell you the requests and the cost or time and ask, convert, check the
+result against the PDF, fix pages, report. It never replaces a skill it did not write, and
+`agent uninstall` removes it. The setup page offers the same, one button per agent.
+
+Underneath, it is plain commands with JSON output, which any script can use too:
+
+```bash
+bettermarkitdown setup --json                     # ready to convert? if not, what is missing
+bettermarkitdown setup --provider gemini --key-stdin   # the key comes from standard input, never the command line
+bettermarkitdown inspect book.pdf --json          # pages, scanned pages, figures, estimate: free
+bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --json
+bettermarkitdown book.pdf --verify --json
+```
+
+With `--json`, standard output carries one JSON object per line (progress events, then a
+summary, or an error) and nothing else. Exit codes: 0 done, 1 error, 2 stopped early
+(spending cap or daily quota), 3 `--verify` flagged pages, 130 interrupted. `--library`
+converts the copy in the setup page's library, so you can review an agent's work in the
+workspace.
+
+**Or as an MCP server**, for agents that prefer tools to a shell: `bettermarkitdown mcp`
+(stdio, nothing extra to install) offers the same steps as tools, with conversions running
+in the background (`convert`, then `job_status` and `stop`). `bettermarkitdown agent mcp`
+prints how to register it with each agent; for Claude Code:
+
+```bash
+claude mcp add --scope user bettermarkitdown -- bettermarkitdown mcp
+```
+
+Tried with Claude Code, both ways (skill and command line, and MCP). Codex, Gemini CLI and
+Antigravity are untested here.
 
 ### As a library
 
@@ -395,6 +447,26 @@ python -m bettermarkitdown book.pdf \
   --work-dir "C:/Users/you/.pdfmd_work/book" \
   --no-page-images
 ```
+
+---
+
+## Tested with
+
+What has actually been run with this tool, and on what. Everything else is built in and
+should work, but is **untested here**: try a few pages first (`--estimate 5`).
+
+| Tried | On | What we found |
+|---|---|---|
+| **Gemini 3.6 Flash** (paid Tier 1) | The [measured runs](#measured-runs) above, and 352 pages of an econometrics textbook read whole | Strong on scans, tables and maths; $1.21 for the 352 pages, in about 10 minutes. Diagram descriptions are the weak spot ([Reviewing the output](#reviewing-the-output)) |
+| **Gemini 3.6 Flash, study notes** | Six textbook pages, run as if refused | No copied wording, every numbered item kept; still about one real slip every few pages ([Refused pages](#refused-pages)) |
+| **Qwen3-VL 4B and 8B**, through Ollama | A Core Ultra 7 laptop, processor only | About 90 s and 130-190 s a page; text and formulas right; 4B reads charts poorly, and both skipped hand-drawn graphs ([Running a local model](#running-a-local-model)) |
+| **Claude Code** as the agent | A small made-up PDF: the skill with the command line, then the MCP server alone | Both ways it loaded the instructions by itself, estimated the cost, converted under a cap, ran the free check, compared the scanned page with its image, and reported ([With an AI agent](#with-an-ai-agent)) |
+| **The Windows installer** | Windows 11, per user | Installed, ran and uninstalled cleanly, PATH restored; the release workflow repeats this on a clean machine |
+
+Untested here: OpenAI, Claude through Anthropic's API, Moonshot Kimi, OpenRouter, other
+local models and servers, and the agents Codex, Gemini CLI and Antigravity. The test suite
+runs on Windows and Linux; macOS and Linux have not been tried by hand, and the installer
+is for Windows only.
 
 ---
 
@@ -786,7 +858,7 @@ Conventions that keep a reviewed file honest:
 
 | Mark | Meaning |
 |---|---|
-| `<!-- source: transcribed by hand from the page scan … -->` | Replaces the local-OCR comment on a page you retyped |
+| `<!-- source: study notes … -->` | Written by the tool on a page the model refused: notes in the model's own words, not the book's text. Fix a wrong statement, but do not edit them towards the book's wording, and do not retype a refused page instead |
 | `*[corrected in review: the original said …]*` | The model's description was wrong; record what it claimed |
 | `*[added in review]*` | Something important was missing, e.g. the data behind a chart |
 | `*[sic: …]*` | The **source** has the error; it is transcribed as printed and the note gives the intended reading. Keeps "the transcription is wrong" apart from "the professor made a typo" |
@@ -832,7 +904,8 @@ the same `[^1]` appears several times in a whole-book file. Most renderers then 
 | `--toc` | — | Print the PDF's outline with each chapter's and section's page range, then exit. A range includes the page where the next section starts when that section begins below text |
 | `--title` | the PDF's file name | The output's `#` heading. Pass it on every rebuild, or the file name comes back |
 | `--work-dir` | next to the output | Resume state and response cache. **Point this at a local disk if your output lives in Google Drive / OneDrive / Dropbox** |
-| `--model` | `gemini-3.6-flash` | Also read from `$BMID_MODEL` |
+| `--provider` | `gemini` | `gemini`, `openai`, `anthropic`, `kimi`, `openrouter`, `ollama` or `custom`. Also read from `$BMID_PROVIDER`, then from the setup page's choice |
+| `--model` | the provider's own | Also read from `$BMID_MODEL` |
 | `--base-url` | Gemini | Any OpenAI-compatible endpoint, e.g. `http://localhost:11434/v1`. Also read from `$BMID_BASE_URL` |
 | `--list-models` | — | Print the models your key can reach, then exit |
 | `--reasoning` | `none` | Thinking budget. `none` is ~3× cheaper with no measured quality loss |
@@ -849,6 +922,11 @@ the same `[^1]` appears several times in a whole-book file. Most renderers then 
 | `--price-out` | model's list price | USD per 1M output tokens |
 | `--estimate N` | off | Convert N pages, measure, project the rest |
 | `--no-vision` | off | Text only, zero API calls |
+| `--every-page` | off | Read every page whole with the AI, not only scanned pages and figures: best for maths, which a text layer often garbles. One request per page |
+| `--as-pages` | off | Word / PowerPoint: turn the file into a PDF first and convert it page by page |
+| `--library` | off | Convert the copy in the setup page's library, for review there. Results go to `Documents\BetterMarkItDown`; `-o` and `--work-dir` are ignored |
+| `--json` | off | One JSON object per line on standard output, for scripts and agents. See [With an AI agent](#with-an-ai-agent) |
+| `--no-study-notes` | off | On a refused page, go straight to local OCR instead of asking for [study notes](#refused-pages) |
 | `--no-page-images` | off | Don't save a PNG of each scanned page |
 | `--no-ocr-fallback` | off | Leave refused pages unconverted instead of using local OCR |
 | `--fresh` | off | Redo pages already finished. **Overwrites hand edits in the work dir** — see [Reviewing the output](#reviewing-the-output) |
@@ -896,8 +974,9 @@ Five behaviours here were bought with real mistakes, and the tests lock them in:
 Python 3.10+, and a vision model to talk to — a hosted API key, or a local server.
 
 ```
-markitdown[pdf]  openai  pymupdf  pillow  rich      # requirements.txt
+markitdown[pdf,docx,pptx]  openai  pymupdf  pillow  rich  keyring   # requirements.txt
 rapidocr-onnxruntime   # optional, for the local OCR fallback
+anthropic              # optional, for Claude through Anthropic's SDK
 Node.js + katex        # optional, for the math render check in --verify (package.json)
 ```
 
@@ -943,7 +1022,8 @@ The version number lives in one place, `__version__` in `bettermarkitdown/__init
 The [release workflow](.github/workflows/release.yml) then checks that the tag matches
 `__version__` and that the changelog has a section for it, builds and tests the wheel, and
 publishes a GitHub Release with the wheel and source archive attached and that version's
-What's New as the notes. A missing changelog section or a mismatched tag stops it before
+What's New as the notes. A second job builds the Windows installer, installs, runs and
+uninstalls it on a clean Windows machine, and attaches it to the same release. A missing changelog section or a mismatched tag stops it before
 anything is published. To rehearse, run the workflow by hand from the Actions tab: it does
 everything except publish.
 

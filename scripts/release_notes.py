@@ -28,8 +28,10 @@ def section(changelog: str, version: str) -> str | None:
     if not m:
         return None
     # GitHub release notes keep single line breaks, so rejoin the hard-wrapped
-    # continuation lines of each bullet into one line.
-    return re.sub(r"\n {2,}(?=\S)", " ", m.group(1).strip())
+    # continuation lines of each bullet, and of each plain paragraph, into one line.
+    # An indented "- " starts a nested bullet, which keeps its own line.
+    text = re.sub(r"\n {2,}(?!- )(?=\S)", " ", m.group(1).strip())
+    return re.sub(r"(?<=[^\n])\n(?=[^\s#>|-])", " ", text)
 
 
 def main(argv: list[str]) -> int:

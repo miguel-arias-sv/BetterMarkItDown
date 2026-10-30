@@ -27,9 +27,13 @@ def test_changelog_has_a_whats_new_for_the_current_version():
 
 
 def test_release_notes_rejoin_wrapped_bullets_and_stop_at_the_next_version():
-    changelog = ("## [2.0.0] - 2027-01-01\n\n- **Big** change that wraps\n  onto a second line.\n\n"
+    changelog = ("## [2.0.0] - 2027-01-01\n\nAn intro that wraps\nonto a second line.\n\n"
+                 "### What's New\n\n- **Big** change that wraps\n  onto a second line.\n"
+                 "  - A nested point that\n    wraps too.\n- Next.\n\n"
                  "## [1.0.0] - 2026-01-01\n\n- Old.\n\n[2.0.0]: https://example.com\n")
-    expected = "- **Big** change that wraps onto a second line."
+    expected = ("An intro that wraps onto a second line.\n\n### What's New\n\n"
+                "- **Big** change that wraps onto a second line.\n"
+                "  - A nested point that wraps too.\n- Next.")
     assert release_notes.section(changelog, "2.0.0") == expected
     assert release_notes.section(changelog, "1.0.0") == "- Old."
     assert release_notes.section(changelog, "3.0.0") is None
