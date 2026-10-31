@@ -344,6 +344,8 @@ select.to-check { width: auto; padding: 8px 10px; }
   border-radius: 6px;
 }
 .game-canvas:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+/* The words over the pixel canvas, at the screen's full resolution (game.js textLayer). */
+.text-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
 .game-hint { margin: 4px 0 0; font-size: 0.75rem; color: var(--muted); }
 .game-banner {
   position: absolute;
@@ -377,6 +379,7 @@ select.to-check { width: auto; padding: 8px 10px; }
 .game:fullscreen .game-label { top: 12px; }
 .game:fullscreen .game-score { top: 36px; }
 .game:fullscreen .game-bar { height: 10px; }
+.game:fullscreen .game-tools button { color: #b9d3ff; }
 .game.popped { position: static; width: auto; max-width: none; box-shadow: none; border: none;
   border-radius: 0; }
 .game.popped .game-tools { cursor: default; }
@@ -389,12 +392,13 @@ div.loading { text-align: center; padding-top: 8px; }
 .runner-box { text-align: center; margin: 12px 0 4px; }
 .run-line { margin: 0; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
 .loading-note { min-height: 1.5em; margin: 0 0 8px; color: var(--muted); }
+.runner-screen { position: relative; width: min(100%, 480px); margin: 0 auto 8px; }
+.runner-screen .text-layer { top: 1px; left: 1px; width: calc(100% - 2px); height: calc(100% - 2px); }
 .runner {
   display: block;
-  width: min(100%, 480px);
+  width: 100%;
   height: auto;
   aspect-ratio: 160 / 56;
-  margin: 0 auto 8px;
   image-rendering: pixelated;
   border-radius: 8px;
   border: 1px solid var(--line);

@@ -26,6 +26,10 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
   next landmark and the longest run, and the files collected so far for each of the five
   types, zeros included.
 - The "While you wait" setting turns the llama off along with LlamaGame.
+- **Sharp text in the games.** The words in LlamaGame and over the waiting llama are drawn at
+  the screen's full resolution, on a layer above the pixel art, so they stay crisp at any
+  size, full screen included; the llama and the files keep their pixel look. The full-screen
+  buttons are readable on the dark background.
 
 ## [1.5.0] - 2026-10-31
 

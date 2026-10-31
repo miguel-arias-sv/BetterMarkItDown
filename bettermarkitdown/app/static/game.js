@@ -90,6 +90,30 @@ const Game = (() => {
 
   const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  // Words go on a see-through layer over the pixel canvas, drawn at the screen's own
+  // resolution: the pixel art stays blocky and the text stays sharp at any size, full
+  // screen included. begin() fits the layer to the screen, clears it and returns its
+  // context, measured in game pixels like the canvas under it. onResize redraws a scene
+  // that stands still (a paused game) when the layer changes size, as on full screen.
+  function textLayer(pixels, onResize) {
+    const layer = document.createElement("canvas");
+    layer.className = "text-layer";
+    layer.setAttribute("aria-hidden", "true");
+    const t = layer.getContext("2d");
+    const begin = () => {
+      const view = layer.ownerDocument.defaultView || window;
+      const ratio = view.devicePixelRatio || 1;
+      const w = Math.max(1, Math.round(layer.clientWidth * ratio));
+      const hh = Math.max(1, Math.round(layer.clientHeight * ratio));
+      if (layer.width !== w || layer.height !== hh) { layer.width = w; layer.height = hh; }
+      t.setTransform(w / pixels.width, 0, 0, hh / pixels.height, 0, 0);
+      t.clearRect(0, 0, pixels.width, pixels.height);
+      return t;
+    };
+    if (onResize && "ResizeObserver" in window) new ResizeObserver(onResize).observe(layer);
+    return { node: layer, begin };
+  }
+
   // --- the record: files collected and the best score, in every form of the game ------------
   // The llama collects files in four colours, in LlamaGame and in every wait alike, and
   // Markdown files on a LlamaRun only. The record lives in the settings (app.js keeps it),
@@ -160,7 +184,7 @@ const Game = (() => {
   }
 
   // --- state -------------------------------------------------------------------------
-  let box = null, canvas, ctx, bar, label, scoreText, banner, bannerText, hint, gameTally;
+  let box = null, canvas, ctx, words, bar, label, scoreText, banner, bannerText, hint, gameTally;
   let win = window;                            // the window the game is in (page or pop-out)
   let state = "ready";                         // ready | running | paused | over | done
   let llama, things, speed, distance, pages, best, spawnIn, lastTime, frame, raf;
@@ -215,7 +239,8 @@ const Game = (() => {
     banner.hidden = true;
     bannerText = h("p", "", "Your file is ready");
     banner.append(bannerText);
-    stage.append(bar, label, scoreText, canvas, banner);
+    words = textLayer(canvas, () => { if (state !== "running") draw(); });
+    stage.append(canvas, words.node, bar, label, scoreText, banner);
     gameTally = tally();
     box.append(tools, stage, gameTally, hint);
     ctx = canvas.getContext("2d");
@@ -374,6 +399,7 @@ const Game = (() => {
   }
 
   function draw() {
+    const t = words.begin();
     ctx.fillStyle = "#eef3f7";
     ctx.fillRect(0, 0, W, H);
     // Shelves of folders in the distance: still when motion is reduced.
@@ -410,10 +436,10 @@ const Game = (() => {
                       over: "Oops! Space to try again" }[state];
     if (message) {
       ctx.fillRect(0, 30, W, 20);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "8px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(message, W / 2, 43);
+      t.fillStyle = "#ffffff";
+      t.font = "600 8px system-ui, sans-serif";
+      t.textAlign = "center";
+      t.fillText(message, W / 2, 43);
     }
   }
 
@@ -463,28 +489,28 @@ const Game = (() => {
   }
 
   // A landmark's folder: its files' colour on the tab, and how many it holds.
-  function drawFolder(x, px, py, color, count) {
+  function drawFolder(x, t, px, py, color, count) {
     px = Math.round(px);
     py = Math.round(py);
     x.fillStyle = color;
     x.fillRect(px, py, 5, 2);
     x.fillStyle = "#d9b36c";
     x.fillRect(px, py + 2, 13, 9);
-    x.fillStyle = "#4a3020";
-    x.font = "bold 7px system-ui, sans-serif";
-    x.textAlign = "center";
-    x.fillText(String(count), px + 6.5, py + 9.5);
+    t.fillStyle = "#4a3020";
+    t.font = "700 7px system-ui, sans-serif";
+    t.textAlign = "center";
+    t.fillText(String(count), px + 6.5, py + 9.5);
   }
 
-  function drawPost(x, px, label) {
+  function drawPost(x, t, px, label) {
     px = Math.round(px);
     x.fillStyle = "#8a6f55";
     x.fillRect(px + 9, 30, 2, 19);
     x.fillRect(px, 24, 20, 8);
-    x.fillStyle = "#ffffff";
-    x.font = "6px system-ui, sans-serif";
-    x.textAlign = "center";
-    x.fillText(label, px + 10, 30);
+    t.fillStyle = "#ffffff";
+    t.font = "600 6px system-ui, sans-serif";
+    t.textAlign = "center";
+    t.fillText(label, px + 10, 30);
   }
 
   function runner(text) {
@@ -499,6 +525,10 @@ const Game = (() => {
     c.setAttribute("aria-label", `${say()}. Left and Right arrows: walk. Space: jump. Down arrow: duck.`);
     const x = c.getContext("2d");
     x.imageSmoothingEnabled = false;
+    const words = textLayer(c);
+    const screen = document.createElement("div");
+    screen.className = "runner-screen";
+    screen.append(c, words.node);
     const line = document.createElement("p");
     line.className = "run-line";
     const counter = tally();
@@ -507,7 +537,7 @@ const Game = (() => {
     hint.textContent = "Left and Right arrows: walk. Space or tap: jump. Down arrow: duck.";
     const wrap = document.createElement("div");
     wrap.className = "runner-box";
-    wrap.append(c, line, counter, hint);
+    wrap.append(screen, line, counter, hint);
 
     const me = { x: 22, y: FLOOR, vy: 0, ducking: false, left: false, right: false, facing: 1 };
     let files = [], posts = [], pops = [], spawnIn = 0.3, travelled = 0, stride = 0, flash = 0;
@@ -637,30 +667,31 @@ const Game = (() => {
       posts = posts.filter((p) => p.x > -22 && fresh(p));
       pops = pops.filter((p) => (p.t += dt) < 0.9);
 
+      const t = words.begin();
       x.fillStyle = "#eef3f7";
       x.fillRect(0, 0, RW, RH);
       x.fillStyle = "#d5dfe8";
       const drift = (travelled * 0.25) % 40;
       for (let sx = -drift; sx < RW; sx += 40) { x.fillRect(sx, 16, 22, 30); x.fillRect(sx + 25, 26, 10, 20); }
-      x.fillStyle = "#5b7390";
-      x.font = "9px system-ui, sans-serif";
-      x.textAlign = "center";
+      t.fillStyle = "#3f5670";
+      t.font = "600 9px system-ui, sans-serif";
+      t.textAlign = "center";
       const dots = still ? 3 : 1 + Math.floor(now / 400) % 3;
-      x.fillText(say().replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 10);
+      t.fillText(say().replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 10);
       if (run) {
-        x.font = "7px system-ui, sans-serif";
-        x.textAlign = "left";
-        x.fillText(`LlamaRun ${Math.floor(wait.metres)} m`, 3, 20);
-        x.textAlign = "right";
-        x.fillText(`next ${wait.next} m`, RW - 3, 20);
+        t.font = "600 7px system-ui, sans-serif";
+        t.textAlign = "left";
+        t.fillText(`LlamaRun ${Math.floor(wait.metres)} m`, 3, 20);
+        t.textAlign = "right";
+        t.fillText(`next ${wait.next} m`, RW - 3, 20);
       }
       x.fillStyle = "#8a6f55";
       x.fillRect(0, FLOOR + 1, RW, 1);
       x.fillStyle = "#c7b299";
       for (let sx = -(travelled % 12); sx < RW; sx += 12) x.fillRect(sx, FLOOR + 4, 5, 1);
-      for (const p of posts) drawPost(x, p.x, p.label);
+      for (const p of posts) drawPost(x, t, p.x, p.label);
       for (const f of files) {
-        if (f.count > 1) drawFolder(x, f.x, f.y - 1, f.kind.color, f.count);
+        if (f.count > 1) drawFolder(x, t, f.x, f.y - 1, f.kind.color, f.count);
         else drawFile(x, f.x, f.y, f.kind.color);
       }
 
@@ -677,19 +708,19 @@ const Game = (() => {
       } else {
         x.drawImage(img, Math.round(me.x), top);
       }
-      x.font = "7px system-ui, sans-serif";
-      x.textAlign = "center";
+      t.font = "700 7px system-ui, sans-serif";
+      t.textAlign = "center";
       for (const p of pops) {
-        x.fillStyle = p.color;
-        x.fillText(p.text, Math.round(p.x + 3), Math.round(p.y - 2 - p.t * 14));
+        t.fillStyle = p.color;
+        t.fillText(p.text, p.x + 3, p.y - 2 - p.t * 14);
       }
       const banner = gameOpen() ? "Paused while LlamaGame is open" : flash ? "LlamaRun! Folders of files ahead" : "";
       if (banner) {
         x.fillStyle = "rgba(20, 30, 45, 0.78)";
         x.fillRect(0, 22, RW, 13);
-        x.fillStyle = "#ffffff";
-        x.font = "7px system-ui, sans-serif";
-        x.fillText(banner, RW / 2, 31);
+        t.fillStyle = "#ffffff";
+        t.font = "600 7px system-ui, sans-serif";
+        t.fillText(banner, RW / 2, 31);
       }
       tell();
       requestAnimationFrame(tick);
