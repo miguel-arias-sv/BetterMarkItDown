@@ -109,7 +109,7 @@ like, a desktop icon, both of which open the setup page; and it can put the
 dependencies, including the local OCR fallback:
 
 ```bash
-pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.5.0"
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.6.0"
 bettermarkitdown --version
 ```
 

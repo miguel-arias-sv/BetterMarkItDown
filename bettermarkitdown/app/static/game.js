@@ -114,6 +114,83 @@ const Game = (() => {
     return { node: layer, begin };
   }
 
+  // --- the pixel font: our own letters, drawn from a few rows of text like the sprites ---
+  // Each glyph is rows of "#" (ink) and "." split by "/", top row first: 7 rows to the
+  // baseline, 2 more for descenders. Every font pixel is a whole number of screen pixels,
+  // so the letters are sharp at any size. A text with a character not here is written in
+  // the system font instead, so nothing is ever lost.
+  const GLYPHS = {
+    A: ".###./#...#/#...#/#####/#...#/#...#/#...#", B: "####./#...#/#...#/####./#...#/#...#/####.",
+    C: ".###./#...#/#..../#..../#..../#...#/.###.", D: "####./#...#/#...#/#...#/#...#/#...#/####.",
+    E: "#####/#..../#..../####./#..../#..../#####", F: "#####/#..../#..../####./#..../#..../#....",
+    G: ".###./#...#/#..../#.###/#...#/#...#/.###.", H: "#...#/#...#/#...#/#####/#...#/#...#/#...#",
+    I: "###/.#./.#./.#./.#./.#./###", J: "..###/...#./...#./...#./#..#./#..#./.##..",
+    K: "#...#/#..#./#.#../##.../#.#../#..#./#...#", L: "#..../#..../#..../#..../#..../#..../#####",
+    M: "#...#/##.##/#.#.#/#.#.#/#...#/#...#/#...#", N: "#...#/##..#/#.#.#/#..##/#...#/#...#/#...#",
+    O: ".###./#...#/#...#/#...#/#...#/#...#/.###.", P: "####./#...#/#...#/####./#..../#..../#....",
+    Q: ".###./#...#/#...#/#...#/#.#.#/#..#./.##.#", R: "####./#...#/#...#/####./#.#../#..#./#...#",
+    S: ".####/#..../#..../.###./....#/....#/####.", T: "#####/..#../..#../..#../..#../..#../..#..",
+    U: "#...#/#...#/#...#/#...#/#...#/#...#/.###.", V: "#...#/#...#/#...#/#...#/#...#/.#.#./..#..",
+    W: "#...#/#...#/#...#/#.#.#/#.#.#/#.#.#/.#.#.", X: "#...#/#...#/.#.#./..#../.#.#./#...#/#...#",
+    Y: "#...#/#...#/.#.#./..#../..#../..#../..#..", Z: "#####/....#/...#./..#../.#.../#..../#####",
+    a: "...../...../.###./....#/.####/#...#/.####", b: "#..../#..../####./#...#/#...#/#...#/####.",
+    c: "..../..../.###/#.../#.../#.../.###", d: "....#/....#/.####/#...#/#...#/#...#/.####",
+    e: "...../...../.###./#...#/#####/#..../.###.", f: "..##/.#../.#../####/.#../.#../.#..",
+    g: "...../...../.####/#...#/#...#/#...#/.####/....#/.###.", h: "#..../#..../####./#...#/#...#/#...#/#...#",
+    i: "#/./#/#/#/#/#", j: "..#/.../..#/..#/..#/..#/..#/#.#/.#.",
+    k: "#.../#.../#..#/#.#./##../#.#./#..#", l: "#./#./#./#./#./#./.#",
+    m: "...../...../##.#./#.#.#/#.#.#/#.#.#/#.#.#", n: "...../...../####./#...#/#...#/#...#/#...#",
+    o: "...../...../.###./#...#/#...#/#...#/.###.", p: "...../...../####./#...#/#...#/#...#/####./#..../#....",
+    q: "...../...../.####/#...#/#...#/#...#/.####/....#/....#", r: "..../..../#.##/##../#.../#.../#...",
+    s: "..../..../.###/#.../.##./...#/###.", t: ".#../.#../####/.#../.#../.#../..##",
+    u: "...../...../#...#/#...#/#...#/#...#/.####", v: "...../...../#...#/#...#/#...#/.#.#./..#..",
+    w: "...../...../#...#/#...#/#.#.#/#.#.#/.#.#.", x: "...../...../#...#/.#.#./..#../.#.#./#...#",
+    y: "...../...../#...#/#...#/#...#/#...#/.####/....#/.###.", z: "...../...../#####/...#./..#../.#.../#####",
+    0: ".##./#..#/#..#/#..#/#..#/#..#/.##.", 1: ".#./##./.#./.#./.#./.#./###",
+    2: ".###./#...#/....#/...#./..#../.#.../#####", 3: "####./....#/....#/.###./....#/....#/####.",
+    4: "...#./..##./.#.#./#..#./#####/...#./...#.", 5: "#####/#..../####./....#/....#/#...#/.###.",
+    6: ".###./#..../#..../####./#...#/#...#/.###.", 7: "#####/....#/...#./..#../.#.../.#.../.#...",
+    8: ".###./#...#/#...#/.###./#...#/#...#/.###.", 9: ".###./#...#/#...#/.####/....#/....#/.###.",
+    ".": "././././././#", ",": "../../../../../.#/.#/#.", ":": "././#/./././#",
+    "!": "#/#/#/#/#/./#", "?": ".###./#...#/....#/...#./..#../...../..#..", "'": "#/#", '"': "#.#/#.#",
+    "-": ".../.../.../###", "+": ".../.../.#./###/.#.", "/": "..#/..#/.#./.#./.#./#../#..",
+    "(": ".#/#./#./#./#./#./.#", ")": "#./.#/.#/.#/.#/.#/#.", "·": "./././#", "=": "..../..../####/..../####",
+    "%": "##..#/##.#./..#../..#../.#.../#.##./...##",
+  };
+  const font = {};
+  for (const [ch, rows] of Object.entries(GLYPHS)) {
+    const lines = rows.split("/");
+    const ink = [];
+    lines.forEach((row, r) => [...row].forEach((c, i) => { if (c === "#") ink.push([i, r]); }));
+    font[ch] = { w: Math.max(...lines.map((row) => row.length)), ink };
+  }
+  font[" "] = { w: 3, ink: [] };
+
+  // Writes `text` with its baseline at game-pixel y, left, centred or right of x. `size`
+  // is one font pixel in game pixels (0.7 makes capitals 4.9 game pixels tall).
+  function pixelText(t, text, x, y, size, align = "center") {
+    text = String(text).replace(/…/g, "...");
+    const glyphs = [...text].map((ch) => font[ch]);
+    if (glyphs.some((g) => !g)) {                       // not in the font: the system's
+      t.font = `600 ${Math.round(size * 10)}px system-ui, sans-serif`;
+      t.textAlign = align;
+      t.fillText(text, x, y);
+      return;
+    }
+    const scale = t.getTransform().a;                    // screen pixels per game pixel
+    const dot = Math.max(1, Math.round(size * scale));   // one font pixel, on the screen
+    const width = (glyphs.reduce((n, g) => n + g.w + 1, 0) - 1) * dot;
+    let left = Math.round(x * scale - (align === "center" ? width / 2 : align === "right" ? width : 0));
+    const top = Math.round(y * scale) - 7 * dot;
+    t.save();
+    t.setTransform(1, 0, 0, 1, 0, 0);
+    for (const g of glyphs) {
+      for (const [i, r] of g.ink) t.fillRect(left + i * dot, top + r * dot, dot, dot);
+      left += (g.w + 1) * dot;
+    }
+    t.restore();
+  }
+
   // --- the record: files collected and the best score, in every form of the game ------------
   // The llama collects files in four colours, in LlamaGame and in every wait alike, and
   // Markdown files on a LlamaRun only. The record lives in the settings (app.js keeps it),
@@ -437,9 +514,7 @@ const Game = (() => {
     if (message) {
       ctx.fillRect(0, 30, W, 20);
       t.fillStyle = "#ffffff";
-      t.font = "600 8px system-ui, sans-serif";
-      t.textAlign = "center";
-      t.fillText(message, W / 2, 43);
+      pixelText(t, message, W / 2, 43, 0.8);
     }
   }
 
@@ -497,9 +572,7 @@ const Game = (() => {
     x.fillStyle = "#d9b36c";
     x.fillRect(px, py + 2, 13, 9);
     t.fillStyle = "#4a3020";
-    t.font = "700 7px system-ui, sans-serif";
-    t.textAlign = "center";
-    t.fillText(String(count), px + 6.5, py + 9.5);
+    pixelText(t, count, px + 6.5, py + 9, 0.7);
   }
 
   function drawPost(x, t, px, label) {
@@ -508,9 +581,7 @@ const Game = (() => {
     x.fillRect(px + 9, 30, 2, 19);
     x.fillRect(px, 24, 20, 8);
     t.fillStyle = "#ffffff";
-    t.font = "600 6px system-ui, sans-serif";
-    t.textAlign = "center";
-    t.fillText(label, px + 10, 30);
+    pixelText(t, label, px + 10, 30, 0.6);
   }
 
   function runner(text) {
@@ -674,16 +745,11 @@ const Game = (() => {
       const drift = (travelled * 0.25) % 40;
       for (let sx = -drift; sx < RW; sx += 40) { x.fillRect(sx, 16, 22, 30); x.fillRect(sx + 25, 26, 10, 20); }
       t.fillStyle = "#3f5670";
-      t.font = "600 9px system-ui, sans-serif";
-      t.textAlign = "center";
       const dots = still ? 3 : 1 + Math.floor(now / 400) % 3;
-      t.fillText(say().replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 10);
+      pixelText(t, say().replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 10, 0.9);
       if (run) {
-        t.font = "600 7px system-ui, sans-serif";
-        t.textAlign = "left";
-        t.fillText(`LlamaRun ${Math.floor(wait.metres)} m`, 3, 20);
-        t.textAlign = "right";
-        t.fillText(`next ${wait.next} m`, RW - 3, 20);
+        pixelText(t, `LlamaRun ${Math.floor(wait.metres)} m`, 3, 20, 0.7, "left");
+        pixelText(t, `next ${wait.next} m`, RW - 3, 20, 0.7, "right");
       }
       x.fillStyle = "#8a6f55";
       x.fillRect(0, FLOOR + 1, RW, 1);
@@ -708,19 +774,16 @@ const Game = (() => {
       } else {
         x.drawImage(img, Math.round(me.x), top);
       }
-      t.font = "700 7px system-ui, sans-serif";
-      t.textAlign = "center";
       for (const p of pops) {
         t.fillStyle = p.color;
-        t.fillText(p.text, p.x + 3, p.y - 2 - p.t * 14);
+        pixelText(t, p.text, p.x + 3, p.y - 2 - p.t * 14, 0.7);
       }
       const banner = gameOpen() ? "Paused while LlamaGame is open" : flash ? "LlamaRun! Folders of files ahead" : "";
       if (banner) {
         x.fillStyle = "rgba(20, 30, 45, 0.78)";
         x.fillRect(0, 22, RW, 13);
         t.fillStyle = "#ffffff";
-        t.font = "600 7px system-ui, sans-serif";
-        t.fillText(banner, RW / 2, 31);
+        pixelText(t, banner, RW / 2, 31, 0.7);
       }
       tell();
       requestAnimationFrame(tick);

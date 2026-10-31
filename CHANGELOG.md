@@ -11,7 +11,9 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
-## [Unreleased]
+## [1.6.0] - 2026-10-31
+
+Every wait is now a little game, and the games' text is sharp.
 
 ### What's New
 
@@ -26,10 +28,10 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
   next landmark and the longest run, and the files collected so far for each of the five
   types, zeros included.
 - The "While you wait" setting turns the llama off along with LlamaGame.
-- **Sharp text in the games.** The words in LlamaGame and over the waiting llama are drawn at
-  the screen's full resolution, on a layer above the pixel art, so they stay crisp at any
-  size, full screen included; the llama and the files keep their pixel look. The full-screen
-  buttons are readable on the dark background.
+- **Sharp pixel text in the games.** The words in LlamaGame and over the waiting llama use the
+  games' own pixel font, drawn at the screen's full resolution, so they stay crisp at any
+  size, full screen included, and match the pixel llama. The full-screen buttons are readable
+  on the dark background.
 
 ## [1.5.0] - 2026-10-31
 
@@ -389,6 +391,7 @@ The first public version.
 - **A documented review workflow** for hand-fixing pages and keeping corrections across
   rebuilds.
 
+[1.6.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.6.0
 [1.5.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.5.0
 [1.1.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.1.0
 [1.0.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.0.0
