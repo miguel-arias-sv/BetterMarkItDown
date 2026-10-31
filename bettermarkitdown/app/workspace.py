@@ -8,6 +8,7 @@ import io
 import os
 import subprocess
 import sys
+import threading
 import zipfile
 from dataclasses import asdict
 from pathlib import Path
@@ -306,10 +307,20 @@ def page_image(app, body) -> Response:
     if pdf is None:
         raise HTTPError(404, "This file has no pages to show.")
     page = _page(body)
+    # Drawn once, then kept in the work folder: the review asks for the next pages ahead
+    # of time, and going back to a page should not draw it again. A newer PDF (an Office
+    # file turned into one again) makes the kept picture stale.
+    kept = doc.work_dir() / "page-images" / f"{page:04d}-{PAGE_DPI}.png"
+    if kept.is_file() and kept.stat().st_mtime >= pdf.stat().st_mtime:
+        return Response(kept.read_bytes(), "image/png")
     with pymupdf.open(pdf) as d:
         if not 1 <= page <= d.page_count:
             raise HTTPError(404, "No such page.")
         png = d[page - 1].get_pixmap(dpi=PAGE_DPI, alpha=False).tobytes("png")
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    tmp = kept.with_name(f"{kept.stem}.{os.getpid()}-{threading.get_ident()}.tmp")
+    tmp.write_bytes(png)
+    tmp.replace(kept)                  # two requests for one page: either copy is whole
     return Response(png, "image/png")
 
 

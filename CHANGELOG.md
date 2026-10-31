@@ -72,7 +72,10 @@ files, study notes for pages a model refuses, and a mode for AI agents.
   file opening beside its review) shows the llama running, with nothing in its way, while
   it loads. It walks left and right, jumps and ducks, and collects the files drifting past:
   red PDF, blue DOCX, green XLSX and orange PPTX. The tally ("4 files from 3 types") adds
-  up over the session, so each wait carries on from the last.
+  up over the session, so each wait carries on from the last. When a file opens, the loading screen
+  stays until the page on screen and up to nine after it are drawn ("Preparing the page
+  pictures: 4 of 10"), so the review never opens on a blank page; while reviewing, the
+  next two pages are drawn ahead, and each page picture is drawn only once.
 - **Light, dark or automatic colours**: a button in the page's header switches between
   them, and the choice is kept.
 - **Agent mode: AI agents can use BetterMarkItDown on their own.**

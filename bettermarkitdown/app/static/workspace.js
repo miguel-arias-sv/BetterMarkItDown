@@ -530,6 +530,17 @@ async function reviewPanel(d, engine, pageArg) {
   const view = { mode: "both", image: true, ...loadView() };
 
   const image = h("img", { class: "page-image", alt: "" });
+  // The server draws each page picture on first request and keeps it. Asking for pages
+  // ahead of time means a page shows at once, not as a blank pane while it is drawn.
+  const pictureUrl = (n) => fileUrl("/api/doc/image", { id: d.id, page: n });
+  const asked = new Set();
+  const drawAhead = (n) => new Promise((resolve) => {
+    if (asked.has(n) || n < 1 || n > total) { resolve(); return; }
+    asked.add(n);
+    const img = new Image();
+    img.onload = img.onerror = () => resolve();
+    img.src = pictureUrl(n);
+  });
   const imagePane = h("div", { class: "pane image-pane" }, image);
   const editor = h("textarea", { class: "editor", spellcheck: "false", "aria-label": "The Markdown, which you can edit" });
   const preview = h("div", { class: "pane preview markdown", "aria-label": "Preview" });
@@ -581,7 +592,12 @@ async function reviewPanel(d, engine, pageArg) {
     S.history[S.history.length - 1] = ["doc", [id, String(n)]];
     setState("Loading...");
     current = await api(`/api/doc/page?id=${encodeURIComponent(id)}&page=${n}`);
-    if (hasImage && paged) { image.src = fileUrl("/api/doc/image", { id: d.id, page: n }); image.alt = `Page ${n} of the original`; }
+    if (hasImage && paged) {
+      image.src = pictureUrl(n);
+      image.alt = `Page ${n} of the original`;
+      drawAhead(n + 1);
+      drawAhead(n + 2);
+    }
     editor.value = current.markdown;
     saved = current.markdown;
     editor.disabled = !current.converted;
@@ -675,7 +691,22 @@ async function reviewPanel(d, engine, pageArg) {
   S.unsaved = dirty;
   fillToCheck();
   layout();
+  if (hasImage && paged) {
+    // Stay on the loading screen until the page on screen and up to nine after it are
+    // drawn (half a minute at most, so a slow file cannot keep the review away).
+    const first = Array.from({ length: Math.min(10, total - page + 1) }, (_, i) => page + i);
+    let ready = 0;
+    const counted = () => loadingNote(`Preparing the page pictures: ${ready} of ${first.length}`);
+    counted();
+    await Promise.race([
+      Promise.all(first.map((n) => drawAhead(n).then(() => { ready += 1; counted(); }))),
+      sleep(30000)]);
+  }
   await load(page, true);
+  if (hasImage && paged && !image.complete) {
+    // Kept by the server now, so this is quick: the picture is in before the screen shows.
+    await Promise.race([new Promise((resolve) => { image.onload = image.onerror = resolve; }), sleep(5000)]);
+  }
 
   const nav = paged ? h("div", { class: "page-nav" }, prev,
     h("label", { class: "inline" }, "Page ", pageInput, ` of ${total}`), next, toCheck) : null;

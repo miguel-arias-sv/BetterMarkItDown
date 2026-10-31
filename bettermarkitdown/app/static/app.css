@@ -384,7 +384,8 @@ select.to-check { width: auto; padding: 8px 10px; }
 body.game-pip { margin: 0; background: var(--card); }
 
 /* The llama running while a screen loads. */
-div.loading { text-align: center; padding-top: 24px; }
+div.loading { text-align: center; padding-top: 8px; }
+.loading-note { min-height: 1.5em; margin: 0 0 8px; color: var(--muted); }
 .runner {
   display: block;
   width: min(100%, 480px);

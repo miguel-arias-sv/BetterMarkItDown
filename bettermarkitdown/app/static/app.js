@@ -92,16 +92,26 @@ async function save(changes) {
 
 const screens = {};
 
+// What a slow screen is waiting for, shown under the llama once the loading screen is up.
+let loadingText = "";
+function loadingNote(text) {
+  loadingText = text;
+  const note = document.getElementById("loading-note");
+  if (note) note.textContent = text;
+}
+
 async function render(name, args) {
   root.classList.toggle("wide", Boolean(screens[name].wide));
   const waiting = h("p", { class: "loading", text: "Loading..." });
   root.replaceChildren(waiting);
+  loadingText = "";
   // Most screens are ready at once. One that takes longer (a file opening beside its
   // review) gets the llama running while it loads, so a short wait has something to see.
   const slow = setTimeout(() => {
     if (!waiting.isConnected) return;
     const text = name === "doc" || name === "review" ? "Opening your file" : "Loading";
-    waiting.replaceWith(h("div", { class: "loading" }, Game.runner(text)));
+    waiting.replaceWith(h("div", { class: "loading" },
+      h("p", { id: "loading-note", class: "loading-note", text: loadingText }), Game.runner(text)));
   }, 300);
   try {
     const node = await screens[name](...args);

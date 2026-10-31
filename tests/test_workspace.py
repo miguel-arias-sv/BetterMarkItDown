@@ -280,6 +280,26 @@ def test_page_images_and_downloads_take_the_token_in_the_address(app, tmp_path):
     assert status == 200 and "Lecture 4.md" in zipfile.ZipFile(io.BytesIO(body)).namelist()
 
 
+def test_a_page_picture_is_drawn_once_and_kept_until_the_pdf_changes(app, tmp_path):
+    """The review asks for the next pages ahead of time; each is drawn only once."""
+    import os
+
+    from bettermarkitdown.app.workspace import PAGE_DPI
+
+    doc = converted(app, tmp_path)
+    address = f"/api/doc/image?id={doc['id']}&page=2&t={app.token}"
+    first = get_raw(app, address)[1]
+    kept = library.get(doc["id"]).work_dir() / "page-images" / f"0002-{PAGE_DPI}.png"
+    assert kept.read_bytes() == first
+    kept.write_bytes(b"\x89PNG kept")                  # served from the folder, not drawn
+    assert get_raw(app, address)[1] == b"\x89PNG kept"
+    pdf = library.get(doc["id"]).page_pdf()
+    later = kept.stat().st_mtime + 10
+    os.utime(pdf, (later, later))                      # a newer PDF: drawn again
+    assert get_raw(app, address)[1] == first
+    assert get_raw(app, f"/api/doc/image?id={doc['id']}&page=99&t={app.token}")[0] == 404
+
+
 def test_pictures_come_only_from_the_result_folder(app, tmp_path):
     doc = converted(app, tmp_path)
     secret = library.output_root() / "secret.png"
