@@ -11,7 +11,7 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
-## [1.5.0] - 2026-10-29
+## [1.5.0] - 2026-10-31
 
 No Python knowledge needed any more: a Windows installer, a setup page and workspace in the
 browser, a choice of AI services or a model on your own computer, Word and PowerPoint
