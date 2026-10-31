@@ -11,6 +11,36 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
+## [1.6.0] - 2026-10-31
+
+Every wait is now a little game, and the games' text is sharp.
+
+### What's New
+
+- **A game in every wait.** Adding a file, the free look through it, starting and running a
+  conversion, transcribing a page again, checking a key and the setup's downloads now have
+  the llama beside them: before, it ran only while a slow screen opened. Waits one straight
+  after another count as one.
+  - **LlamaCatch** first: files are dropped from above and drift slowly down, and the llama
+    walks and jumps to catch them; one it misses falls on, off the screen. No way to lose.
+    The files fall even with Windows' animation effects off; only the scenery keeps still.
+    While your file is a PDF, each PDF file caught counts 2.
+  - **LlamaRun** once the wait passes 15 seconds: an obstacle course started with Space or a
+    tap. Each signpost (100 m, 300 m, 500 m...) gives 6 Markdown (MD) files, and three tries
+    in a row that reach none give 3. The longest run is kept with the other records.
+- **LlamaGame is gentler and gives Markdown files, fewer than LlamaRun.** It starts slower and
+  speeds up over about a minute; obstacles come further apart and always leave room to land
+  and jump again; taller stacks and staplers come later; a near miss is a miss. Each
+  signpost gives 3 MD, and every fourth try gives 1.
+- **Every count on screen.** Caught and missed, metres, the next signpost and its reward, the
+  tries left to the next MD, this wait's files and the longest run, and the files collected
+  so far for each of the five types, zeros included.
+- The "While you wait" setting turns the llama off along with LlamaGame.
+- **Sharp pixel text in the games.** The words in LlamaGame and over the waiting llama use the
+  games' own pixel font, drawn at the screen's full resolution, so they stay crisp at any
+  size, full screen included, and match the pixel llama. The full-screen buttons are readable
+  on the dark background.
+
 ## [1.5.0] - 2026-10-31
 
 No Python knowledge needed any more: a Windows installer, a setup page and workspace in the
@@ -369,6 +399,7 @@ The first public version.
 - **A documented review workflow** for hand-fixing pages and keeping corrections across
   rebuilds.
 
+[1.6.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.6.0
 [1.5.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.5.0
 [1.1.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.1.0
 [1.0.0]: https://github.com/miguel-arias-sv/BetterMarkItDown/releases/tag/v1.0.0

@@ -93,6 +93,23 @@ async function saveGameRecord() {
   try { await save(record); } catch (_) { /* the next change tries again */ }
 }
 
+// Every wait has the llama running beside it (off with the "While you wait" setting).
+// options: Game.runner's, as { bonus: "pdf" } for a wait on a PDF.
+function waitLlama(text, options) {
+  return S.state && S.state.settings.offer_game === false ? null : Game.runner(text, options);
+}
+
+// The llama after `anchor` while work() runs: from 300 ms in, since a shorter wait has
+// nothing to show, and gone when it ends.
+async function withLlama(anchor, text, work, options) {
+  let llama = null;
+  const later = setTimeout(() => {
+    llama = anchor.isConnected ? waitLlama(text, options) : null;
+    if (llama) anchor.after(llama);
+  }, 300);
+  try { return await work(); } finally { clearTimeout(later); if (llama) llama.remove(); }
+}
+
 async function refresh() {
   S.state = await api("/api/state");
   applyTheme(S.state.settings.theme);
@@ -129,7 +146,7 @@ async function render(name, args) {
     if (!waiting.isConnected) return;
     const text = name === "doc" || name === "review" ? "Opening your file" : "Loading";
     waiting.replaceWith(h("div", { class: "loading" },
-      h("p", { id: "loading-note", class: "loading-note", text: loadingText }), Game.runner(text)));
+      h("p", { id: "loading-note", class: "loading-note", text: loadingText }), waitLlama(text)));
   }, 300);
   try {
     const node = await screens[name](...args);
@@ -288,7 +305,7 @@ screens.keyform = (pid) => {
     status.className = "";
     status.textContent = "Checking the key with a free request...";
     try {
-      const out = await api("/api/key", { provider: p.id, key: input.value });
+      const out = await withLlama(status, "Checking the key", () => api("/api/key", { provider: p.id, key: input.value }));
       input.value = "";
       await refresh();
       show("keydone", p.id, out.hint);
@@ -400,28 +417,38 @@ screens.localcheck = async () => {
     } }, "Continue")));
 };
 
-function progressArea() {
+// Hidden until start(), which shows it with the llama running under it; stop() ends that.
+function progressArea(waiting) {
   const bar = h("progress", { max: 1 });
   bar.removeAttribute("value");               // no value: an "in progress" stripe
   const text = h("p", { class: "explain", role: "status" });
-  return { node: h("div", {}, bar, text), bar, text };
+  const node = h("div", { hidden: true }, bar, text);
+  let llama = null;
+  return {
+    node, bar, text,
+    start() {
+      node.hidden = false;
+      if (!llama) { llama = waitLlama(waiting); if (llama) node.append(llama); }
+    },
+    stop() { if (llama) llama.remove(); llama = null; },
+  };
 }
 
 screens.localinstall = () => {
   const o = S.system.ollama;
   if (o.running) return screens.localpull();
-  const progress = progressArea();
-  progress.node.hidden = true;
+  const progress = progressArea(o.program ? "Starting Ollama" : "Installing Ollama");
   const go = h("button", { type: "button", class: "primary" }, o.program ? "Start Ollama" : "Install Ollama");
   go.addEventListener("click", async () => {
     go.disabled = true;
-    progress.node.hidden = false;
+    progress.start();
     try {
       const job = await api("/api/local/install", {});
       await follow(job, (j) => { progress.text.textContent = j.message; });
       S.system = await api("/api/system");
       show("localpull");
     } catch (err) {
+      progress.stop();
       progress.text.className = "error";
       progress.text.textContent = err.message;
       go.disabled = false;
@@ -443,12 +470,11 @@ screens.localinstall = () => {
 screens.localpull = () => {
   const model = S.system.catalog.find((m) => m.tag === S.localModel);
   if (S.system.ollama.models.includes(model.tag)) return screens.localtest();
-  const progress = progressArea();
-  progress.node.hidden = true;
+  const progress = progressArea(`Downloading ${model.name}`);
   const go = h("button", { type: "button", class: "primary" }, `Download ${model.name}`);
   go.addEventListener("click", async () => {
     go.disabled = true;
-    progress.node.hidden = false;
+    progress.start();
     try {
       const job = await api("/api/local/pull", { model: model.tag });
       await follow(job, (j) => {
@@ -462,6 +488,7 @@ screens.localpull = () => {
       });
       show("localtest");
     } catch (err) {
+      progress.stop();
       progress.text.className = "error";
       progress.text.textContent = err.message;
       go.disabled = false;
@@ -475,18 +502,18 @@ screens.localpull = () => {
 
 screens.localtest = () => {
   const model = S.system.catalog.find((m) => m.tag === S.localModel);
-  const progress = progressArea();
-  progress.node.hidden = true;
+  const progress = progressArea("Speed test");
   const result = h("div");
   const go = h("button", { type: "button", class: "primary" }, "Run the speed test");
   const done = h("button", { type: "button", class: "primary", hidden: true }, "Finish");
   done.addEventListener("click", finish);
   const run = async () => {
     go.disabled = true;
-    progress.node.hidden = false;
+    progress.start();
     try {
       const job = await api("/api/local/test", { model: model.tag });
       const r = await follow(job, (j) => { progress.text.textContent = j.message; });
+      progress.stop();
       progress.node.hidden = true;
       result.replaceChildren(
         h("p", { class: r.read_ok ? "ok" : "warn", text: r.read_ok ? "It read the test page correctly." : "It did not read the test page correctly: check its output on your own files." }),
@@ -496,6 +523,7 @@ screens.localtest = () => {
       go.hidden = true;
       done.hidden = false;
     } catch (err) {
+      progress.stop();
       progress.text.className = "error";
       progress.text.textContent = err.message;
       go.disabled = false;
@@ -575,8 +603,10 @@ screens.settings = async () => {
     ? h("button", { type: "button", onclick: async (ev) => {
         ev.target.disabled = true;
         try {
-          const job = await api("/api/office/install", {});
-          await follow(job, (j) => { officeStatus.textContent = j.message; });
+          await withLlama(officeStatus, "Installing LibreOffice", async () => {
+            const job = await api("/api/office/install", {});
+            await follow(job, (j) => { officeStatus.textContent = j.message; });
+          });
           replace("settings");
         } catch (err) { officeStatus.className = "error"; officeStatus.textContent = err.message; ev.target.disabled = false; }
       } }, "Install LibreOffice (free)") : null;
@@ -599,7 +629,7 @@ screens.settings = async () => {
     h("label", { for: "help", text: "How much help the setup gives" }), help,
     agentsPart,
     h("h2", { text: "While you wait" }),
-    h("label", { class: "check" }, game, " Offer a small game during conversions longer than 2 minutes"),
+    h("label", { class: "check" }, game, " The llama in every wait, and LlamaGame offered during conversions longer than 2 minutes"),
     h("div", { class: "actions" },
       h("button", { type: "button", onclick: () => show("audience") }, "Run setup again"),
       backButton()));

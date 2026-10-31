@@ -109,7 +109,7 @@ like, a desktop icon, both of which open the setup page; and it can put the
 dependencies, including the local OCR fallback:
 
 ```bash
-pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.5.0"
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.6.0"
 bettermarkitdown --version
 ```
 
@@ -186,9 +186,13 @@ model). Convert all of it, a chapter, or a few pages to measure, with a spending
 like, and watch the pages, time left and money spent. A converted file then opens beside
 its review: each page's picture next to its Markdown, with the maths drawn, to check and
 edit, starting with the pages the free check flags. Download the `.md` or a `.zip` with its
-pictures. A conversion expected to take more than two minutes offers a small game while you
-wait; it never starts by itself, and **LlamaGame** in the header opens it any time. The header
-also switches the page between light, dark and your system's colours.
+pictures. Every wait (adding a file, the free look, a conversion, a download) has a llama
+beside it: **LlamaCatch** first, files falling to catch, and past 15 seconds **LlamaRun**,
+an obstacle course whose signposts give Markdown files. The counts carry from one wait and
+one launch to the next. A conversion expected to take more than two minutes also offers
+**LlamaGame**, the same course in a window of its own with smaller rewards; it never starts
+by itself, and the header opens it any time. Settings turns both off. The header also switches
+the page between light, dark and your system's colours.
 
 The page's server listens on 127.0.0.1 only and needs the one-time token in the address it
 opens, so other websites and other computers cannot use it. It stops when you press Quit,

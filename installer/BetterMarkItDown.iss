@@ -1,6 +1,6 @@
 ; The Windows installer for BetterMarkItDown (Inno Setup 6). Built by installer/build.py,
 ; which passes AppVersion, WheelFile, SourceDir and OutputDir (absolute paths):
-;   ISCC /DAppVersion=1.5.0 /DWheelFile=bettermarkitdown-1.5.0-py3-none-any.whl
+;   ISCC /DAppVersion=1.6.0 /DWheelFile=bettermarkitdown-1.6.0-py3-none-any.whl
 ;        /DSourceDir=C:\...\build\installer /DOutputDir=C:\...\dist BetterMarkItDown.iss
 ;
 ; Per user, no administrator rights: the program goes to %LOCALAPPDATA%\Programs. Setup
