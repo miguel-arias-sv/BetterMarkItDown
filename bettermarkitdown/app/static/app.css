@@ -396,6 +396,15 @@ div.loading { text-align: center; padding-top: 24px; }
   border: 1px solid var(--line);
 }
 .runner:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.haul { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px;
+  margin: 8px 0 0; }
+.chip { padding: 1px 9px; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+  color: #ffffff; background: var(--chip); }
+/* The file colours on the canvas, a shade darker so white text stays readable. */
+.chip.pdf { --chip: #c0392b; }
+.chip.docx { --chip: #2563c9; }
+.chip.xlsx { --chip: #1e7d44; }
+.chip.pptx { --chip: #c4561a; }
 
 h3 { font-size: 1rem; margin: 16px 0 4px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -101,8 +101,7 @@ async function render(name, args) {
   const slow = setTimeout(() => {
     if (!waiting.isConnected) return;
     const text = name === "doc" || name === "review" ? "Opening your file" : "Loading";
-    waiting.replaceWith(h("div", { class: "loading" }, Game.runner(text),
-      h("p", { class: "explain", text: "Space or tap: jump. Down arrow: duck." })));
+    waiting.replaceWith(h("div", { class: "loading" }, Game.runner(text)));
   }, 300);
   try {
     const node = await screens[name](...args);

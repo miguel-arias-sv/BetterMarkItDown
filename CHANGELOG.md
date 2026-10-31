@@ -70,7 +70,9 @@ files, study notes for pages a model refuses, and a mode for AI agents.
   on top, and says when your file is ready. Settings can turn the offer off. **LlamaGame**
   in the page's header opens it at any time, and a screen that takes a moment to load (a
   file opening beside its review) shows the llama running, with nothing in its way, while
-  it loads: Space jumps, Down ducks.
+  it loads. It walks left and right, jumps and ducks, and collects the files drifting past:
+  red PDF, blue DOCX, green XLSX and orange PPTX. The tally ("4 files from 3 types") adds
+  up over the session, so each wait carries on from the last.
 - **Light, dark or automatic colours**: a button in the page's header switches between
   them, and the choice is kept.
 - **Agent mode: AI agents can use BetterMarkItDown on their own.**

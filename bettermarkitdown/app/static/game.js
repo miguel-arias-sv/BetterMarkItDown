@@ -377,28 +377,92 @@ const Game = (() => {
     raf = win.requestAnimationFrame(tick);
   }
 
-  // --- while a screen loads: the same llama, running with nothing in its way ---------------
-  // Space, Up or a tap jumps; Down ducks. No obstacles and no score; the message runs
-  // behind it. It stops by itself once the screen takes its place.
+  // --- while a screen loads: the llama with nothing in its way, and files to collect -------
+  // Left and Right walk, Space, Up or a tap jumps, Down ducks. Files drift past in four
+  // colours; what is collected adds up over the session (until BetterMarkItDown quits), so
+  // each wait carries on from the last. Nothing to hit and no way to lose. It stops by
+  // itself once the screen takes its place.
+  const FILE_KINDS = [
+    { id: "pdf", label: "PDF", color: "#d93a2b" },
+    { id: "docx", label: "DOCX", color: "#2b6cd9" },
+    { id: "xlsx", label: "XLSX", color: "#1f8f4a" },
+    { id: "pptx", label: "PPTX", color: "#e8772e" },
+  ];
+  // The browser keeps storage per address, and the address's port is new at every launch,
+  // so sessionStorage holds exactly one session's tally (and survives reloading the tab).
+  const haul = (() => {
+    try { return JSON.parse(sessionStorage.getItem("bmid-haul")) || {}; } catch (_) { return {}; }
+  })();
+  const keepHaul = () => {
+    try { sessionStorage.setItem("bmid-haul", JSON.stringify(haul)); } catch (_) { /* private window */ }
+  };
+
+  function showHaul(node) {
+    const total = FILE_KINDS.reduce((n, k) => n + (haul[k.id] || 0), 0);
+    const types = FILE_KINDS.filter((k) => haul[k.id]).length;
+    const lead = document.createElement("span");
+    lead.textContent = total
+      ? `This session: ${total} file${total === 1 ? "" : "s"} from ${types} type${types === 1 ? "" : "s"}`
+      : "Collect the files:";
+    node.replaceChildren(lead, ...FILE_KINDS.map((k) => {
+      const chip = document.createElement("span");
+      chip.className = `chip ${k.id}`;
+      chip.textContent = total ? `${k.label} ${haul[k.id] || 0}` : k.label;
+      return chip;
+    }));
+  }
+
+  function drawFile(x, px, py, color) {
+    px = Math.round(px);
+    py = Math.round(py);
+    x.fillStyle = color;
+    x.fillRect(px, py, 7, 9);
+    x.fillStyle = "#ffffff";
+    x.fillRect(px + 5, py, 2, 2);                      // the folded corner
+    x.fillRect(px + 1, py + 4, 5, 1);                  // two lines of "text"
+    x.fillRect(px + 1, py + 6, 4, 1);
+  }
+
   function runner(text) {
-    const RW = 160, RH = 56, FLOOR = 48, X = 22;
+    const RW = 160, RH = 56, FLOOR = 48, PACE = 40, WALK = 70;
     const c = document.createElement("canvas");
     c.className = "runner";
     c.width = RW;
     c.height = RH;
     c.tabIndex = 0;
-    c.setAttribute("aria-label", `${text}. Space: jump, Down arrow: duck.`);
+    c.setAttribute("aria-label", `${text}. Left and Right arrows: walk. Space: jump. Down arrow: duck.`);
     const x = c.getContext("2d");
     x.imageSmoothingEnabled = false;
-    const me = { y: FLOOR, vy: 0, ducking: false };
-    let travelled = 0, last = 0, seen = false, frames = 0;
+    const counter = document.createElement("p");
+    counter.className = "haul";
+    showHaul(counter);
+    const hint = document.createElement("p");
+    hint.className = "explain";
+    hint.textContent = "Left and Right arrows: walk. Space or tap: jump. Down arrow: duck.";
+    const box = document.createElement("div");
+    box.className = "runner-box";
+    box.append(c, counter, hint);
+
+    const me = { x: 22, y: FLOOR, vy: 0, ducking: false, left: false, right: false, facing: 1 };
+    let files = [], pops = [], spawnIn = 0.3, travelled = 0, stride = 0;
+    let last = 0, seen = false, frames = 0;
     const jump = () => { if (me.y >= FLOOR) { me.vy = -130; me.ducking = false; } };
+    const keys = {
+      jump: [" ", "ArrowUp", "w", "W"], duck: ["ArrowDown", "s", "S"],
+      left: ["ArrowLeft", "a", "A"], right: ["ArrowRight", "d", "D"],
+    };
     const onKey = (ev) => {
       if (ev.target !== c && ev.target !== document.body) return;
-      if ([" ", "ArrowUp"].includes(ev.key)) { ev.preventDefault(); jump(); }
-      else if (ev.key === "ArrowDown") { ev.preventDefault(); me.ducking = me.y >= FLOOR; }
+      if (keys.jump.includes(ev.key)) { ev.preventDefault(); jump(); }
+      else if (keys.duck.includes(ev.key)) { ev.preventDefault(); me.ducking = me.y >= FLOOR; }
+      else if (keys.left.includes(ev.key)) { ev.preventDefault(); me.left = true; }
+      else if (keys.right.includes(ev.key)) { ev.preventDefault(); me.right = true; }
     };
-    const onKeyUp = (ev) => { if (ev.key === "ArrowDown") me.ducking = false; };
+    const onKeyUp = (ev) => {
+      if (keys.duck.includes(ev.key)) me.ducking = false;
+      if (keys.left.includes(ev.key)) me.left = false;
+      if (keys.right.includes(ev.key)) me.right = false;
+    };
     c.addEventListener("pointerdown", (ev) => { ev.preventDefault(); jump(); });
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
@@ -418,11 +482,41 @@ const Game = (() => {
       seen = true;
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
       last = now;
-      const still = reduced();
-      if (!still) travelled += 50 * dt;
+      const still = reduced();                           // nothing drifts; the llama still walks
+      const pace = still ? 0 : PACE;
+      const walk = (me.right ? 1 : 0) - (me.left ? 1 : 0);
+      if (walk) me.facing = walk;
+      me.x = Math.max(2, Math.min(RW - 18, me.x + walk * WALK * dt));
+      travelled += pace * dt;
+      stride += (pace + Math.abs(walk) * WALK) * dt;
       me.vy += 420 * dt;
       me.y = Math.min(FLOOR, me.y + me.vy * dt);
       if (me.y >= FLOOR) me.vy = 0;
+      if (me.y < FLOOR) me.ducking = false;
+
+      // Files: some on the ground, some only reached by jumping.
+      spawnIn -= dt;
+      if (spawnIn <= 0 && files.length < 4) {
+        const kind = FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)];
+        const high = Math.random() < 0.45;
+        files.push({ kind, born: now,
+                     x: still ? 20 + Math.random() * (RW - 40) : RW + 2,
+                     y: high ? FLOOR - 32 + Math.round(Math.random() * 4) : FLOOR - 10 - Math.round(Math.random() * 3) });
+        spawnIn = 0.7 + Math.random() * 0.9;
+      }
+      const body = me.ducking ? { x: me.x, y: me.y - 9, w: 18, h: 9 } : { x: me.x + 1, y: me.y - 16, w: 13, h: 16 };
+      for (const f of files) {
+        f.x -= pace * dt;
+        if (body.x < f.x + 7 && body.x + body.w > f.x && body.y < f.y + 9 && body.y + body.h > f.y) {
+          f.gone = true;
+          haul[f.kind.id] = (haul[f.kind.id] || 0) + 1;
+          keepHaul();
+          showHaul(counter);
+          pops.push({ x: f.x, y: f.y, t: 0, text: `+1 ${f.kind.label}`, color: f.kind.color });
+        }
+      }
+      files = files.filter((f) => !f.gone && f.x > -8 && (!still || now - f.born < 6000));
+      pops = pops.filter((p) => (p.t += dt) < 0.7);
 
       x.fillStyle = "#eef3f7";
       x.fillRect(0, 0, RW, RH);
@@ -433,19 +527,35 @@ const Game = (() => {
       x.font = "9px system-ui, sans-serif";
       x.textAlign = "center";
       const dots = still ? 3 : 1 + Math.floor(now / 400) % 3;
-      x.fillText(text.replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 14);
+      x.fillText(text.replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 10);
       x.fillStyle = "#8a6f55";
       x.fillRect(0, FLOOR + 1, RW, 1);
       x.fillStyle = "#c7b299";
       for (let sx = -(travelled % 12); sx < RW; sx += 12) x.fillRect(sx, FLOOR + 4, 5, 1);
-      const pose = me.ducking ? "duck" : me.y < FLOOR || still ? "run1"
-        : (Math.floor(travelled / 9) % 2 ? "run1" : "run2");
+      for (const f of files) drawFile(x, f.x, f.y, f.kind.color);
+
+      const moving = pace || walk;
+      const pose = me.ducking ? "duck" : me.y < FLOOR || !moving ? "run1"
+        : (Math.floor(stride / 9) % 2 ? "run1" : "run2");
       const img = sprite(pose);
-      x.drawImage(img, X, Math.round(me.y - img.height + 1));
+      const top = Math.round(me.y - img.height + 1);
+      if (me.facing < 0) {
+        x.save();
+        x.scale(-1, 1);
+        x.drawImage(img, -Math.round(me.x) - img.width, top);
+        x.restore();
+      } else {
+        x.drawImage(img, Math.round(me.x), top);
+      }
+      x.font = "7px system-ui, sans-serif";
+      for (const p of pops) {
+        x.fillStyle = p.color;
+        x.fillText(p.text, Math.round(p.x + 3), Math.round(p.y - 2 - p.t * 14));
+      }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-    return c;
+    return box;
   }
 
   // --- what the page tells it ---------------------------------------------------------------
