@@ -23,10 +23,15 @@ Every wait is now a little game, and the games' text is sharp.
   opened. Waits one straight after another count as one.
 - **LlamaRun.** A wait longer than 15 seconds becomes a run: the metres count, and at each
   100 m landmark a signpost comes with a folder of files, a bigger one each time. Markdown
-  (MD) files are found on a LlamaRun only. The longest run is kept with the other records.
+  (MD) files turn up there. The longest run is kept with the other records.
 - **Every count on screen.** Under the llama: this wait's files, the metres, landmarks, the
   next landmark and the longest run, and the files collected so far for each of the five
   types, zeros included.
+- **LlamaGame is gentler and gives Markdown files.** It starts slower and speeds up over about
+  a minute; obstacles come further apart, and always leave room to land and jump again;
+  taller stacks and staplers come later; a near miss is a miss. Each signpost (100 m,
+  300 m, 500 m...) gives 5 MD files at once, and every third try gives 1. The score line
+  shows the metres and the next signpost.
 - The "While you wait" setting turns the llama off along with LlamaGame.
 - **Sharp pixel text in the games.** The words in LlamaGame and over the waiting llama use the
   games' own pixel font, drawn at the screen's full resolution, so they stay crisp at any

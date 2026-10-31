@@ -188,10 +188,10 @@ its review: each page's picture next to its Markdown, with the maths drawn, to c
 edit, starting with the pages the free check flags. Download the `.md` or a `.zip` with its
 pictures. Every wait (adding a file, the free look, a conversion, a download) has a llama
 running beside it that collects files as they drift past; a wait longer than 15 seconds
-becomes a **LlamaRun**, with a folder of files at each 100 m landmark and Markdown files only
-found there. The counts carry from one wait and one launch to the next. A conversion expected
+becomes a **LlamaRun**, with a folder of files at each 100 m landmark and Markdown files
+along the way. The counts carry from one wait and one launch to the next. A conversion expected
 to take more than two minutes also offers **LlamaGame**, a small game that never starts by
-itself, and the header opens it any time. Settings turns both off. The header also switches
+itself (its signposts give Markdown files too), and the header opens it any time. Settings turns both off. The header also switches
 the page between light, dark and your system's colours.
 
 The page's server listens on 127.0.0.1 only and needs the one-time token in the address it

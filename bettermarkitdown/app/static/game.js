@@ -193,7 +193,7 @@ const Game = (() => {
 
   // --- the record: files collected and the best score, in every form of the game ------------
   // The llama collects files in four colours, in LlamaGame and in every wait alike, and
-  // Markdown files on a LlamaRun only. The record lives in the settings (app.js keeps it),
+  // Markdown files on a LlamaRun and as LlamaGame's rewards. The record lives in the settings (app.js keeps it),
   // so it carries from one launch to the next: the browser's own storage is new at every
   // launch, since the port is.
   const FILE_KINDS = [
@@ -207,6 +207,7 @@ const Game = (() => {
   const haul = {};
   let bestEver = 0;
   let runBest = 0;                               // the longest LlamaRun, in metres
+  let tries = 0;                                 // LlamaGame's tries: every third gives an MD
   const shown = new Set();                       // tally lines on the page, kept current
 
   // From the saved settings. The larger count wins: a file collected a moment ago may not
@@ -215,6 +216,7 @@ const Game = (() => {
     for (const k of ALL_KINDS) haul[k.id] = Math.max(haul[k.id] || 0, (settings.haul || {})[k.id] || 0);
     bestEver = Math.max(bestEver, settings.game_best || 0);
     runBest = Math.max(runBest, settings.run_best || 0);
+    tries = Math.max(tries, settings.game_tries || 0);
     refreshTallies();
   }
 
@@ -226,7 +228,7 @@ const Game = (() => {
 
   function keepRecord() {
     if (typeof keepGameRecord === "function") {
-      keepGameRecord({ haul: { ...haul }, game_best: bestEver, run_best: runBest });
+      keepGameRecord({ haul: { ...haul }, game_best: bestEver, run_best: runBest, game_tries: tries });
     }
   }
 
@@ -255,7 +257,7 @@ const Game = (() => {
       const chip = document.createElement("span");
       chip.className = `chip ${k.id}`;
       chip.textContent = `${k.label} ${haul[k.id] || 0}`;
-      if (k === MD) chip.title = "Markdown files are found on a LlamaRun only";
+      if (k === MD) chip.title = "Markdown files: on a LlamaRun, 5 at each LlamaGame signpost, and 1 for every three tries";
       return chip;
     }));
   }
@@ -264,17 +266,23 @@ const Game = (() => {
   let box = null, canvas, ctx, words, bar, label, scoreText, banner, bannerText, hint, gameTally;
   let win = window;                            // the window the game is in (page or pop-out)
   let state = "ready";                         // ready | running | paused | over | done
-  let llama, things, speed, distance, pages, best, spawnIn, lastTime, frame, raf;
+  let llama, things, posts, pops, speed, distance, pages, best, obstacleIn, fileIn, nextMark;
+  let lastTime, frame, raf;
+  let overNote = "";
   let corner = "br";
   let closing = false;                         // Close was pressed in the pop-out window
 
   function reset() {
     llama = { y: GROUND, vy: 0, ducking: false };
     things = [];
-    speed = 55;
+    posts = [];
+    pops = [];
+    speed = 50;
     distance = 0;
     pages = 0;
-    spawnIn = 1.2;
+    obstacleIn = 1.8;
+    fileIn = 0.9;
+    nextMark = MARK_FIRST;
     best = bestEver;
   }
 
@@ -311,7 +319,7 @@ const Game = (() => {
     canvas.tabIndex = 0;
     canvas.setAttribute("aria-label", "Game: press Space to jump, Down arrow to duck, P to pause");
     canvas.addEventListener("pointerdown", (ev) => { ev.preventDefault(); canvas.focus(); press("jump"); });
-    hint = h("p", "game-hint", "Space or tap: jump. Down arrow: duck. P: pause.");
+    hint = h("p", "game-hint", "Space or tap: jump. Down arrow: duck. P: pause. Each signpost: +5 MD. Every third try: +1 MD.");
     banner = h("div", "game-banner");
     banner.hidden = true;
     bannerText = h("p", "", "Your file is ready");
@@ -413,7 +421,7 @@ const Game = (() => {
     if (state === "done") return;
     if (state === "ready" || state === "over") { reset(); state = "running"; lastTime = 0; loop(); return; }
     if (state === "paused") { state = "running"; lastTime = 0; loop(); return; }
-    if (action === "jump" && llama.y >= GROUND && !llama.ducking) llama.vy = -150;
+    if (action === "jump" && llama.y >= GROUND && !llama.ducking) llama.vy = -JUMP;
   }
 
   function onKey(ev) {
@@ -433,50 +441,107 @@ const Game = (() => {
   }
 
   // --- the game ----------------------------------------------------------------------------
-  function spawn() {
-    const roll = Math.random();
-    if (distance > 400 && roll < 0.28) {
-      things.push({ kind: "stapler", x: W + 4, y: GROUND - 18, w: 14, h: 6, vx: 18 });
-    } else if (roll < 0.5) {
-      things.push({ kind: "file", file: FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)],
-                    x: W + 4, y: GROUND - 22 - Math.round(Math.random() * 14), w: 7, h: 9, vx: 0 });
+  // Gentle at first, harder slowly: the speed rises over about a minute; the gaps between
+  // obstacles shrink over about 500 m but always leave room to land and jump again; two-
+  // and three-ream stacks come later, and staplers from 150 m. Files come on a timer of
+  // their own, so they never crowd the obstacles. Obstacles hit a pixel inside their
+  // drawing, so a near miss is a miss.
+  //
+  // Markdown files: each signpost (100 m, 300 m, 500 m...) gives 5 at once as the llama
+  // passes it, and every third try gives 1, so they are never out of reach.
+  const JUMP = 150, GRAVITY = 420;
+  const AIRTIME = (2 * JUMP) / GRAVITY;          // seconds off the ground in a jump
+  const MARK_FIRST = 100, MARK_GAP = 200;        // signposts, in metres (10 game pixels each)
+
+  function spawnObstacle() {
+    const metres = distance / 10;
+    if (metres > 150 && Math.random() < Math.min(0.3, 0.1 + (metres - 150) / 2000)) {
+      things.push({ kind: "stapler", x: W + 4, y: GROUND - 18, w: 14, h: 6, vx: 14 });
     } else {
-      const reams = 1 + Math.floor(Math.random() * Math.min(3, 1 + distance / 500));
+      const tallest = metres < 80 ? 1 : metres < 250 ? 2 : 3;
+      const reams = 1 + Math.floor(Math.random() * tallest);
       things.push({ kind: "stack", x: W + 4, y: GROUND - reams * 5, w: 10 + Math.round(Math.random() * 4), h: reams * 5, vx: 0 });
     }
-    spawnIn = Math.max(0.55, 1.5 - distance / 2500) + Math.random() * 0.7;
+    obstacleIn = Math.max(AIRTIME + 30 / speed, 2.0 - metres / 500) + Math.random() * 0.8;
+  }
+
+  function spawnFile() {
+    things.push({ kind: "file", file: FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)],
+                  x: W + 4, y: GROUND - 22 - Math.round(Math.random() * 14), w: 7, h: 9, vx: 0 });
+    fileIn = 1.3 + Math.random() * 1.4;
   }
 
   function llamaBox() {
     const tall = llama.ducking ? 10 : 17;
-    return { x: 14, y: llama.y - tall + 1, w: llama.ducking ? 18 : 13, h: tall - 2 };
+    return { x: 15, y: llama.y - tall + 2, w: llama.ducking ? 16 : 11, h: tall - 3 };
   }
 
   const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  const solid = (o) => ({ x: o.x + 1, y: o.y + 1, w: o.w - 2, h: o.h - 1 });
+  const score = () => Math.floor(distance / 10) + pages * 10;
+  const triesLeft = () => {
+    const left = 3 - (tries % 3);
+    return `${left} more ${left === 1 ? "try" : "tries"} to win 1 MD`;
+  };
 
   function update(dt) {
-    speed = Math.min(115, speed + dt * 1.5);
+    speed = Math.min(105, speed + dt * 0.8);
     distance += speed * dt;
-    llama.vy += 420 * dt;
+    llama.vy += GRAVITY * dt;
     llama.y = Math.min(GROUND, llama.y + llama.vy * dt);
     if (llama.y >= GROUND) llama.vy = 0;
     if (llama.y < GROUND) llama.ducking = false;
-    spawnIn -= dt;
-    if (spawnIn <= 0) spawn();
-    const me = llamaBox();
-    for (const t of things) {
-      t.x -= (speed + t.vx) * dt;
-      if (t.gone || !hit(me, t)) continue;
-      if (t.kind === "file") { t.gone = true; pages += 1; collect(t.file); continue; }
-      state = "over";
-      const score = Math.floor(distance / 10) + pages * 10;
-      if (score > best) { best = bestEver = score; keepRecord(); }
+    obstacleIn -= dt;
+    fileIn -= dt;
+    if (obstacleIn <= 0) spawnObstacle();
+    if (fileIn <= 0) spawnFile();
+    if (distance / 10 >= nextMark) {
+      posts.push({ x: W + 4, mark: nextMark });
+      nextMark += MARK_GAP;
     }
-    things = things.filter((t) => t.x + t.w > -2 && !t.gone);
+    for (const p of posts) {
+      p.x -= speed * dt;
+      if (!p.passed && p.x + 10 < 14) {
+        p.passed = true;
+        collect(MD, 5);
+        pops.push({ x: 22, y: llama.y - 20, t: 0, text: "+5 MD", color: MD.color });
+      }
+    }
+    posts = posts.filter((p) => p.x > -22);
+    pops = pops.filter((p) => (p.t += dt) < 1.2);
+    const me = llamaBox();
+    for (const o of things) {
+      o.x -= (speed + o.vx) * dt;
+      if (o.gone) continue;
+      if (o.kind === "file") {
+        if (!hit(me, o)) continue;
+        o.gone = true;
+        pages += 1;
+        collect(o.file);
+        pops.push({ x: o.x + 3, y: o.y - 2, t: 0, text: `+1 ${o.file.label}`, color: o.file.color });
+      } else if (hit(me, solid(o))) {
+        over();
+        break;
+      }
+    }
+    things = things.filter((o) => o.x + o.w > -2 && !o.gone);
+  }
+
+  function over() {
+    state = "over";
+    if (score() > best) best = bestEver = score();
+    tries += 1;
+    if (tries % 3 === 0) {
+      collect(MD, 1);
+      overNote = "+1 MD for three tries!";
+    } else {
+      overNote = triesLeft();
+    }
+    keepRecord();
   }
 
   function draw() {
-    const t = words.begin();
+    const tx = words.begin();
     ctx.fillStyle = "#eef3f7";
     ctx.fillRect(0, 0, W, H);
     // Shelves of folders in the distance: still when motion is reduced.
@@ -489,15 +554,16 @@ const Game = (() => {
     const dash = reduced() ? 0 : distance % 12;
     for (let x = -dash; x < W; x += 12) ctx.fillRect(x, GROUND + 4, 5, 1);
 
-    for (const t of things) {
-      if (t.kind === "file") drawFile(ctx, t.x, t.y, t.file.color);
-      else if (t.kind === "stapler") ctx.drawImage(sprite("stapler"), Math.round(t.x), Math.round(t.y));
+    for (const p of posts) drawPost(ctx, tx, p.x, `${p.mark} m`, GROUND, 0.8);
+    for (const o of things) {
+      if (o.kind === "file") drawFile(ctx, o.x, o.y, o.file.color);
+      else if (o.kind === "stapler") ctx.drawImage(sprite("stapler"), Math.round(o.x), Math.round(o.y));
       else {
-        for (let i = 0; i < t.h / 5; i++) {
-          const y = Math.round(t.y + i * 5);
-          ctx.fillStyle = "#ffffff"; ctx.fillRect(Math.round(t.x), y, t.w, 5);
-          ctx.fillStyle = "#9db7d6"; ctx.fillRect(Math.round(t.x), y + 4, t.w, 1);
-          ctx.fillStyle = "#b8b8b8"; ctx.fillRect(Math.round(t.x) + t.w - 1, y, 1, 5);
+        for (let i = 0; i < o.h / 5; i++) {
+          const y = Math.round(o.y + i * 5);
+          ctx.fillStyle = "#ffffff"; ctx.fillRect(Math.round(o.x), y, o.w, 5);
+          ctx.fillStyle = "#9db7d6"; ctx.fillRect(Math.round(o.x), y + 4, o.w, 1);
+          ctx.fillStyle = "#b8b8b8"; ctx.fillRect(Math.round(o.x) + o.w - 1, y, 1, 5);
         }
       }
     }
@@ -505,16 +571,26 @@ const Game = (() => {
       : (Math.floor(distance / 9) % 2 ? "run1" : "run2");
     const img = sprite(pose);
     ctx.drawImage(img, 12, Math.round(llama.y - img.height + 1));
+    for (const p of pops) {
+      tx.fillStyle = p.color;
+      pixelText(tx, p.text, p.x, p.y - p.t * 14, 0.8);
+    }
 
-    const score = Math.floor(distance / 10) + pages * 10;
-    scoreText.textContent = `Score ${score}  ·  files ${pages}  ·  best ${best}`;
-    ctx.fillStyle = "rgba(20, 30, 45, 0.78)";
+    const coming = (posts.find((p) => !p.passed) || { mark: nextMark }).mark;
+    scoreText.textContent = `Score ${score()}  ·  ${Math.floor(distance / 10)} m  ·  files ${pages}  ·  ` +
+      `+5 MD at ${coming} m  ·  best ${best}`;
     const message = { ready: "Press Space to start", paused: "Paused: Space to go on",
                       over: "Oops! Space to try again" }[state];
     if (message) {
-      ctx.fillRect(0, 30, W, 20);
-      t.fillStyle = "#ffffff";
-      pixelText(t, message, W / 2, 43, 0.8);
+      const note = state === "over" ? overNote : state === "ready" ? triesLeft() : "";
+      ctx.fillStyle = "rgba(20, 30, 45, 0.78)";
+      ctx.fillRect(0, 28, W, note ? 27 : 20);
+      tx.fillStyle = "#ffffff";
+      pixelText(tx, message, W / 2, note ? 40 : 41, 0.8);
+      if (note) {
+        tx.fillStyle = "#d9c8ff";
+        pixelText(tx, note, W / 2, 50, 0.8);
+      }
     }
   }
 
@@ -545,7 +621,7 @@ const Game = (() => {
   //
   // A wait that goes on becomes a LlamaRun: the metres count, and at every landmark (each
   // 100 m) a signpost comes with a folder of files, a bigger one each time. Markdown files
-  // are found on a LlamaRun only. Waits one straight after another (a file added, then
+  // turn up here too (and in LlamaGame, as rewards). Waits one straight after another (a file added, then
   // looked through) are one wait: a runner that starts as another ends carries on from it.
   const RUN_AFTER = 15;                              // seconds of waiting before a LlamaRun
   const MARK_EVERY = 100;                            // metres between landmarks
@@ -575,13 +651,14 @@ const Game = (() => {
     pixelText(t, count, px + 6.5, py + 9, 0.7);
   }
 
-  function drawPost(x, t, px, label) {
+  function drawPost(x, t, px, label, floor = 48, size = 0.6) {
     px = Math.round(px);
+    const wide = Math.max(20, Math.ceil(label.length * 6 * size) + 4);   // the board fits its label
     x.fillStyle = "#8a6f55";
-    x.fillRect(px + 9, 30, 2, 19);
-    x.fillRect(px, 24, 20, 8);
+    x.fillRect(px + Math.round(wide / 2) - 1, floor - 18, 2, 19);
+    x.fillRect(px, floor - 24, wide, 8);
     t.fillStyle = "#ffffff";
-    pixelText(t, label, px + 10, 30, 0.6);
+    pixelText(t, label, px + wide / 2, floor - 18, size);
   }
 
   function runner(text) {

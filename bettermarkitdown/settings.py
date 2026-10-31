@@ -16,7 +16,7 @@ from pathlib import Path
 AUDIENCES = ("human", "agent", "both")
 HELP_LEVELS = ("assisted", "automatic")
 THEMES = ("auto", "light", "dark")
-FILE_KINDS = ("pdf", "docx", "xlsx", "pptx", "md")    # what the llama collects (md: LlamaRun only)
+FILE_KINDS = ("pdf", "docx", "xlsx", "pptx", "md")    # what the llama collects
 
 
 @dataclass
@@ -32,10 +32,11 @@ class Settings:
     theme: str = "auto"       # the setup page's colours: auto (the system's) | light | dark
     # LlamaGame's record, kept here because the browser's storage is new at every launch:
     # files collected by type (in the game and in every wait), the best score, and the
-    # longest LlamaRun in metres.
+    # longest LlamaRun in metres, and LlamaGame's tries (every third gives a Markdown file).
     haul: dict[str, int] = field(default_factory=dict)
     game_best: int = 0
     run_best: int = 0
+    game_tries: int = 0
 
 
 def config_dir() -> Path:
@@ -90,7 +91,7 @@ def update(**changes) -> Settings:
                 for k, v in value.items())):
             raise ValueError(f"haul must count {', '.join(FILE_KINDS)} files")
         whole = isinstance(value, int) and not isinstance(value, bool) and value >= 0
-        if name in ("game_best", "run_best") and not whole:
+        if name in ("game_best", "run_best", "game_tries") and not whole:
             raise ValueError(f"{name} must be a whole number")
         if name == "provider" and value not in PROVIDERS:
             raise ValueError(f"unknown provider '{value}'")

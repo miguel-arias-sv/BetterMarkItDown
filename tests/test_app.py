@@ -90,14 +90,15 @@ def test_settings_are_checked_and_kept(app):
 def test_llamagames_record_is_kept_between_launches_and_checked(app):
     """The browser's storage is new at every launch (the port changes), so the files
     collected, the best score and the longest LlamaRun live in the settings."""
-    record = {"haul": {"pdf": 3, "xlsx": 1, "md": 4}, "game_best": 120, "run_best": 340}
+    record = {"haul": {"pdf": 3, "xlsx": 1, "md": 4}, "game_best": 120, "run_best": 340,
+              "game_tries": 7}
     assert call(app, "POST", "/api/settings", record)[0] == 200
     kept = settings.load()
     assert kept.haul == {"pdf": 3, "xlsx": 1, "md": 4}
-    assert kept.game_best == 120 and kept.run_best == 340
+    assert kept.game_best == 120 and kept.run_best == 340 and kept.game_tries == 7
     for bad in ({"haul": {"exe": 1}}, {"haul": {"pdf": -1}}, {"haul": {"pdf": True}},
                 {"haul": [1]}, {"game_best": -5}, {"game_best": "lots"},
-                {"run_best": -1}, {"run_best": 2.5}):
+                {"run_best": -1}, {"run_best": 2.5}, {"game_tries": -1}):
         assert call(app, "POST", "/api/settings", bad)[0] == 400, bad
     assert settings.load().haul == {"pdf": 3, "xlsx": 1, "md": 4}
 

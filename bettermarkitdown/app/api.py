@@ -56,7 +56,8 @@ def ping(app, _body) -> dict:
 
 def save_settings(app, body) -> dict:
     allowed = {"audience", "help_level", "provider", "model", "setup_done", "offer_game",
-               "theme", "haul", "game_best", "run_best"}
+               "theme", "haul", "game_best", "run_best",
+               "game_tries"}
     unknown = set(body) - allowed
     if unknown:
         raise ValueError(f"unknown setting(s): {', '.join(sorted(unknown))}")
