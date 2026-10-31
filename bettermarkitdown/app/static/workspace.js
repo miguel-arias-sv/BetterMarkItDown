@@ -579,7 +579,24 @@ async function reviewPanel(d, engine, pageArg) {
     if (!current.converted) items.push(h("li", { text: "This page is not converted yet." }));
     if (current.scanned) items.push(h("li", { class: "info", text: "Little or no text layer here, so the free check has nothing to compare: look at it beside the page image." }));
     for (const note of current.notes || []) items.push(h("li", { class: "flag", text: note }));
-    notes.replaceChildren(items.length ? h("ul", {}, items) : h("p", { class: "ok", text: paged ? "Nothing to check on this page: its words and numbers match the PDF's text." : "" }));
+    // A bare dollar amount has a one-click fix: the converter's own rule, then a save.
+    const money = (current.notes || []).some((note) => / dollar amounts? \(|^A dollar amount,/.test(note));
+    const fix = money && !editor.disabled ? h("button", { type: "button", class: "fix", onclick: async () => {
+      fix.disabled = true;
+      try {
+        const out = await api("/api/doc/fix-money", { markdown: editor.value });
+        if (out.markdown !== editor.value) {
+          editor.value = out.markdown;
+          renderPreview();
+          await savePage();
+        }
+      } catch (err) {
+        setState(err.message, "error");
+        fix.disabled = false;
+      }
+    } }, "Write the amounts as money") : null;
+    notes.replaceChildren(items.length ? h("div", {}, h("ul", {}, items), fix)
+      : h("p", { class: "ok", text: paged ? "Nothing to check on this page: its words and numbers match the PDF's text." : "" }));
     notes.hidden = !items.length && !paged;
   };
 

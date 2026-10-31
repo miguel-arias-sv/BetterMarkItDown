@@ -175,8 +175,9 @@ _LATEX_OUTSIDE_MATH = re.compile(
 # A link or image whose target holds a space: CommonMark ends the target there, so
 # '[Exercise 9.29](Exercise 9.29)' prints as plain text. 'url "title"' is allowed.
 _SPACED_LINK = re.compile(r"!?\[[^\]\n]*\]\((?!<)([^)\n]*\s[^)\n]*)\)")
-# `$` + an amount that is not a closed `$12$` formula.
-_CURRENCY = re.compile(r"(?:(?<=[\s(“—–])|^)\$(?=\d[\d,]*(?:\.\d+)?(?:s\b|[\s,.;:)\-–]|$))"
+# `$` + an amount that is not a closed `$12$` formula. A minus may come first: statements
+# print credits as -$4,822.35.
+_CURRENCY = re.compile(r"(?:(?<=[\s(“—–-])|^)\$(?=\d[\d,]*(?:\.\d+)?(?:s\b|[\s,.;:)\-–]|$))"
                        r"(?![\d,.]*\$)", re.M)
 
 
@@ -468,7 +469,17 @@ def page_notes(r: PageCheck, limit: int = 12) -> list[str]:
     if r.notes:
         notes.append("Study notes, not the page's text: the model refused to transcribe this "
                      "page. For exact wording and figures, read it in the original.")
-    notes += [_in_plain_words(problem) for problem in r.math + r.markup]
+    # Dollar amounts come as one note, however many: a statement has dozens.
+    amounts = [m.group(1) for m in (re.match(_MONEY, p) for p in r.markup) if m]
+    if len(amounts) == 1:
+        notes.append(_in_plain_words(next(p for p in r.markup if re.match(_MONEY, p))))
+    elif amounts:
+        more = f" and {len(amounts) - 6} more" if len(amounts) > 6 else ""
+        listed = ", ".join(amounts[:6]) + more
+        notes.append(f"{len(amounts)} dollar amounts ({listed}) may show as the start of a "
+                     "formula in some Markdown viewers. Put a backslash before each, as in "
+                     f"\\{amounts[0]}, and they show as money everywhere.")
+    notes += [_in_plain_words(p) for p in r.math + r.markup if not re.match(_MONEY, p)]
     return notes
 
 
@@ -476,9 +487,10 @@ def page_notes(r: PageCheck, limit: int = 12) -> list[str]:
 # says the same in plain words. Anything not listed here keeps its report wording.
 # The library keeps each page's notes, so change NOTES_WORDING with the words: a file
 # checked with older words is then checked again when it is opened.
-NOTES_WORDING = 2
+NOTES_WORDING = 3
+_MONEY = r"unescaped dollar sign, probably money '(\$[\d,.]*)"
 _PLAIN = [
-    (r"unescaped dollar sign, probably money '(\$[\d,.]*)",
+    (_MONEY,
      "A dollar amount, {0}, may show as the start of a formula in some Markdown viewers. "
      "Put a backslash before it, \\{0}, and it shows as money everywhere."),
     (r"unmatched \$\$", "A formula is missing its opening or closing $$, so the maths after "

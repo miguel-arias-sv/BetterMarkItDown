@@ -444,3 +444,17 @@ def test_the_setup_page_gets_each_fault_in_plain_words():
     assert "Footnote 3 has no text." in notes
     assert any(n.startswith("A footnote number is written as a formula ($^{24}$)") for n in notes)
     assert not any(n.startswith(("Markup:", "Broken maths:")) or "unescaped" in n for n in notes)
+
+
+def test_dollar_amounts_on_a_page_are_one_note_and_credits_count():
+    """A statement: three amounts gave three nearly identical notes, and the credit
+    -$4,822.35 was not seen at all."""
+    from bettermarkitdown.verify import PageCheck, markup_problems, page_notes
+
+    md = "| Fees | $612.35 |\n| Payment | -$4,822.35 |\n| Balance | $0.00 |\n"
+    r = PageCheck(page=1, pdf_words=6, markup=markup_problems(md))
+    assert len(r.markup) == 3
+    assert page_notes(r) == [
+        "3 dollar amounts ($612.35, $4,822.35, $0.00) may show as the start of a formula in "
+        r"some Markdown viewers. Put a backslash before each, as in \$612.35, and they show "
+        "as money everywhere."]

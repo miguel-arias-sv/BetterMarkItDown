@@ -1,5 +1,5 @@
-// "Play while you wait": a llama hops over stacks of paper, ducks under flying
-// staplers and collects loose pages, while a long conversion runs. Opt-in, never
+// LlamaGame, "play while you wait": a llama hops over stacks of paper, ducks under flying
+// staplers and collects files, while a long conversion runs. Opt-in, never
 // started by itself. Our own characters and rules; every sprite is drawn here from
 // a few rows of text, so nothing is downloaded.
 //
@@ -72,15 +72,6 @@ const Game = (() => {
       "kggggggggggggk",
       ".kkkkkkkkkkkk.",
     ],
-    page: [
-      "wwwwwg",
-      "wllllw",
-      "wwwwww",
-      "wllllw",
-      "wwwwww",
-      "wllllw",
-      "gwwwwg",
-    ],
   };
   const images = {};
 
@@ -98,13 +89,72 @@ const Game = (() => {
   }
 
   const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const store = {
-    get() { try { return Number(localStorage.getItem("bmid-game-best")) || 0; } catch (_) { return 0; } },
-    set(v) { try { localStorage.setItem("bmid-game-best", String(v)); } catch (_) { /* private window */ } },
-  };
+
+  // --- the record: files collected and the best score, in every form of the game ------------
+  // The llama collects files in four colours, in LlamaGame and on loading screens alike.
+  // The record lives in the settings (app.js keeps it), so it carries from one launch to
+  // the next: the browser's own storage is new at every launch, since the port is.
+  const FILE_KINDS = [
+    { id: "pdf", label: "PDF", color: "#d93a2b" },
+    { id: "docx", label: "DOCX", color: "#2b6cd9" },
+    { id: "xlsx", label: "XLSX", color: "#1f8f4a" },
+    { id: "pptx", label: "PPTX", color: "#e8772e" },
+  ];
+  const haul = {};
+  let bestEver = 0;
+  const shown = new Set();                       // tally lines on the page, kept current
+
+  // From the saved settings. The larger count wins: a file collected a moment ago may not
+  // have reached the settings yet when the page reads them again.
+  function setRecord(settings) {
+    for (const k of FILE_KINDS) haul[k.id] = Math.max(haul[k.id] || 0, (settings.haul || {})[k.id] || 0);
+    bestEver = Math.max(bestEver, settings.game_best || 0);
+    refreshTallies();
+  }
+
+  function collect(kind) {
+    haul[kind.id] = (haul[kind.id] || 0) + 1;
+    keepRecord();
+    refreshTallies();
+  }
+
+  function keepRecord() {
+    if (typeof keepGameRecord === "function") keepGameRecord({ haul: { ...haul }, game_best: bestEver });
+  }
+
+  function refreshTallies() {
+    for (const node of [...shown]) {
+      if (node.isConnected || !node.dataset.seen) showHaul(node);
+      else shown.delete(node);
+    }
+  }
+
+  function tally() {
+    const node = document.createElement("p");
+    node.className = "haul";
+    shown.add(node);
+    showHaul(node);
+    return node;
+  }
+
+  function showHaul(node) {
+    if (node.isConnected) node.dataset.seen = "1";
+    const total = FILE_KINDS.reduce((n, k) => n + (haul[k.id] || 0), 0);
+    const types = FILE_KINDS.filter((k) => haul[k.id]).length;
+    const lead = document.createElement("span");
+    lead.textContent = total
+      ? `Collected so far: ${total} file${total === 1 ? "" : "s"} from ${types} type${types === 1 ? "" : "s"}`
+      : "Collect the files:";
+    node.replaceChildren(lead, ...FILE_KINDS.map((k) => {
+      const chip = document.createElement("span");
+      chip.className = `chip ${k.id}`;
+      chip.textContent = total ? `${k.label} ${haul[k.id] || 0}` : k.label;
+      return chip;
+    }));
+  }
 
   // --- state -------------------------------------------------------------------------
-  let box = null, canvas, ctx, bar, label, scoreText, banner, bannerText, hint;
+  let box = null, canvas, ctx, bar, label, scoreText, banner, bannerText, hint, gameTally;
   let win = window;                            // the window the game is in (page or pop-out)
   let state = "ready";                         // ready | running | paused | over | done
   let llama, things, speed, distance, pages, best, spawnIn, lastTime, frame, raf;
@@ -118,7 +168,7 @@ const Game = (() => {
     distance = 0;
     pages = 0;
     spawnIn = 1.2;
-    best = store.get();
+    best = bestEver;
   }
 
   // --- the window around it ---------------------------------------------------------------
@@ -160,7 +210,8 @@ const Game = (() => {
     bannerText = h("p", "", "Your file is ready");
     banner.append(bannerText);
     stage.append(bar, label, scoreText, canvas, banner);
-    box.append(tools, stage, hint);
+    gameTally = tally();
+    box.append(tools, stage, gameTally, hint);
     ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
   }
@@ -178,6 +229,8 @@ const Game = (() => {
       document.body.append(box);
       listen(window, true);
     }
+    shown.add(gameTally);                        // dropped while the game was closed
+    showHaul(gameTally);
     if (state === "done" || state === "over") state = "ready";
     if (state === "ready") reset();
     banner.hidden = true;
@@ -277,7 +330,8 @@ const Game = (() => {
     if (distance > 400 && roll < 0.28) {
       things.push({ kind: "stapler", x: W + 4, y: GROUND - 18, w: 14, h: 6, vx: 18 });
     } else if (roll < 0.5) {
-      things.push({ kind: "page", x: W + 4, y: GROUND - 22 - Math.round(Math.random() * 14), w: 6, h: 7, vx: 0 });
+      things.push({ kind: "file", file: FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)],
+                    x: W + 4, y: GROUND - 22 - Math.round(Math.random() * 14), w: 7, h: 9, vx: 0 });
     } else {
       const reams = 1 + Math.floor(Math.random() * Math.min(3, 1 + distance / 500));
       things.push({ kind: "stack", x: W + 4, y: GROUND - reams * 5, w: 10 + Math.round(Math.random() * 4), h: reams * 5, vx: 0 });
@@ -305,10 +359,10 @@ const Game = (() => {
     for (const t of things) {
       t.x -= (speed + t.vx) * dt;
       if (t.gone || !hit(me, t)) continue;
-      if (t.kind === "page") { t.gone = true; pages += 1; continue; }
+      if (t.kind === "file") { t.gone = true; pages += 1; collect(t.file); continue; }
       state = "over";
       const score = Math.floor(distance / 10) + pages * 10;
-      if (score > best) { best = score; store.set(best); }
+      if (score > best) { best = bestEver = score; keepRecord(); }
     }
     things = things.filter((t) => t.x + t.w > -2 && !t.gone);
   }
@@ -327,7 +381,7 @@ const Game = (() => {
     for (let x = -dash; x < W; x += 12) ctx.fillRect(x, GROUND + 4, 5, 1);
 
     for (const t of things) {
-      if (t.kind === "page") ctx.drawImage(sprite("page"), Math.round(t.x), Math.round(t.y));
+      if (t.kind === "file") drawFile(ctx, t.x, t.y, t.file.color);
       else if (t.kind === "stapler") ctx.drawImage(sprite("stapler"), Math.round(t.x), Math.round(t.y));
       else {
         for (let i = 0; i < t.h / 5; i++) {
@@ -344,7 +398,7 @@ const Game = (() => {
     ctx.drawImage(img, 12, Math.round(llama.y - img.height + 1));
 
     const score = Math.floor(distance / 10) + pages * 10;
-    scoreText.textContent = `Score ${score}  ·  pages ${pages}  ·  best ${best}`;
+    scoreText.textContent = `Score ${score}  ·  files ${pages}  ·  best ${best}`;
     ctx.fillStyle = "rgba(20, 30, 45, 0.78)";
     const message = { ready: "Press Space to start", paused: "Paused: Space to go on",
                       over: "Oops! Space to try again" }[state];
@@ -379,39 +433,9 @@ const Game = (() => {
 
   // --- while a screen loads: the llama with nothing in its way, and files to collect -------
   // Left and Right walk, Space, Up or a tap jumps, Down ducks. Files drift past in four
-  // colours; what is collected adds up over the session (until BetterMarkItDown quits), so
-  // each wait carries on from the last. Nothing to hit and no way to lose. It stops by
-  // itself once the screen takes its place.
-  const FILE_KINDS = [
-    { id: "pdf", label: "PDF", color: "#d93a2b" },
-    { id: "docx", label: "DOCX", color: "#2b6cd9" },
-    { id: "xlsx", label: "XLSX", color: "#1f8f4a" },
-    { id: "pptx", label: "PPTX", color: "#e8772e" },
-  ];
-  // The browser keeps storage per address, and the address's port is new at every launch,
-  // so sessionStorage holds exactly one session's tally (and survives reloading the tab).
-  const haul = (() => {
-    try { return JSON.parse(sessionStorage.getItem("bmid-haul")) || {}; } catch (_) { return {}; }
-  })();
-  const keepHaul = () => {
-    try { sessionStorage.setItem("bmid-haul", JSON.stringify(haul)); } catch (_) { /* private window */ }
-  };
-
-  function showHaul(node) {
-    const total = FILE_KINDS.reduce((n, k) => n + (haul[k.id] || 0), 0);
-    const types = FILE_KINDS.filter((k) => haul[k.id]).length;
-    const lead = document.createElement("span");
-    lead.textContent = total
-      ? `This session: ${total} file${total === 1 ? "" : "s"} from ${types} type${types === 1 ? "" : "s"}`
-      : "Collect the files:";
-    node.replaceChildren(lead, ...FILE_KINDS.map((k) => {
-      const chip = document.createElement("span");
-      chip.className = `chip ${k.id}`;
-      chip.textContent = total ? `${k.label} ${haul[k.id] || 0}` : k.label;
-      return chip;
-    }));
-  }
-
+  // colours, added to the same record as LlamaGame's, so each wait carries on from the
+  // last. Nothing to hit and no way to lose. It stops by itself once the screen takes its
+  // place.
   function drawFile(x, px, py, color) {
     px = Math.round(px);
     py = Math.round(py);
@@ -433,9 +457,7 @@ const Game = (() => {
     c.setAttribute("aria-label", `${text}. Left and Right arrows: walk. Space: jump. Down arrow: duck.`);
     const x = c.getContext("2d");
     x.imageSmoothingEnabled = false;
-    const counter = document.createElement("p");
-    counter.className = "haul";
-    showHaul(counter);
+    const counter = tally();
     const hint = document.createElement("p");
     hint.className = "explain";
     hint.textContent = "Left and Right arrows: walk. Space or tap: jump. Down arrow: duck.";
@@ -509,9 +531,7 @@ const Game = (() => {
         f.x -= pace * dt;
         if (body.x < f.x + 7 && body.x + body.w > f.x && body.y < f.y + 9 && body.y + body.h > f.y) {
           f.gone = true;
-          haul[f.kind.id] = (haul[f.kind.id] || 0) + 1;
-          keepHaul();
-          showHaul(counter);
+          collect(f.kind);
           pops.push({ x: f.x, y: f.y, t: 0, text: `+1 ${f.kind.label}`, color: f.kind.color });
         }
       }
@@ -592,6 +612,6 @@ const Game = (() => {
     draw();
   }
 
-  return { open, close: closeGame, idle, progress, finish, runner,
+  return { open, close: closeGame, idle, progress, finish, runner, setRecord,
            isOpen: () => Boolean(box && box.isConnected) };
 })();

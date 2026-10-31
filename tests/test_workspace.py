@@ -256,6 +256,18 @@ def test_notes_kept_from_an_older_version_are_checked_again_in_todays_words(app,
     assert library.get(doc["id"]).checks_wording == verify.NOTES_WORDING
 
 
+def test_bare_dollar_amounts_have_a_one_click_fix(app):
+    """A page converted before money was escaped keeps its bare '$0.00'; the review's
+    button escapes it by the converter's own rule, and leaves formulas alone."""
+    md = ("| Balance owing | $0.00     |\n| Payment | -$4,822.35 |\n\n"
+          "The slope is $\\beta$ and the fee $12.50, paid.\n")
+    status, out = call(app, "POST", "/api/doc/fix-money", {"markdown": md})
+    assert status == 200
+    assert out["markdown"] == ("| Balance owing | \\$0.00     |\n| Payment | -\\$4,822.35 |\n\n"
+                               "The slope is $\\beta$ and the fee \\$12.50, paid.\n")
+    assert call(app, "POST", "/api/doc/fix-money", {})[0] == 400
+
+
 def test_a_page_not_converted_yet_cannot_be_saved(app, tmp_path):
     doc = add(app, tmp_path)
     status, out = call(app, "POST", "/api/doc/page", {"id": doc["id"], "page": 1,

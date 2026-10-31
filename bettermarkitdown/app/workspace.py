@@ -298,6 +298,17 @@ def page_save(app, body) -> dict:
     return {"saved": True, "notes": doc.checks.get(str(page), []), "edited": doc.edited}
 
 
+def fix_money(app, body) -> dict:
+    """The review's "Write the amounts as money": the Markdown with each bare dollar
+    amount escaped, by the converter's own rule. The page saves it, as any edit."""
+    from ..notes import escape_money
+
+    markdown = body.get("markdown")
+    if not isinstance(markdown, str):
+        raise ValueError("Nothing to fix.")
+    return {"markdown": escape_money(markdown)}
+
+
 @route(token_in_query=True)
 def page_image(app, body) -> Response:
     import pymupdf
@@ -381,6 +392,7 @@ ROUTES = {
     ("GET", "/api/doc/pages"): page_list,
     ("GET", "/api/doc/page"): page_get,
     ("POST", "/api/doc/page"): page_save,
+    ("POST", "/api/doc/fix-money"): fix_money,
     ("GET", "/api/doc/image"): page_image,
     ("GET", "/api/doc/asset"): asset,
     ("GET", "/api/doc/download"): download,

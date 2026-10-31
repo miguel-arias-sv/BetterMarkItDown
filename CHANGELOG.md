@@ -65,14 +65,15 @@ files, study notes for pages a model refuses, and a mode for AI agents.
     within 5% of the cost.
 - **LlamaGame, "play while you wait":** during a conversion expected to take more than 2
   minutes, a small game is offered (never started by itself): a llama hops over stacks of paper,
-  ducks under flying staplers and collects loose pages. It plays in a corner of the page,
+  ducks under flying staplers and collects files. It plays in a corner of the page,
   full screen, or popped out above other windows in Chrome and Edge, with the progress bar
   on top, and says when your file is ready. Settings can turn the offer off. **LlamaGame**
   in the page's header opens it at any time, and a screen that takes a moment to load (a
   file opening beside its review) shows the llama running, with nothing in its way, while
   it loads. It walks left and right, jumps and ducks, and collects the files drifting past:
-  red PDF, blue DOCX, green XLSX and orange PPTX. The tally ("4 files from 3 types") adds
-  up over the session, so each wait carries on from the last. When a file opens, the loading screen
+  red PDF, blue DOCX, green XLSX and orange PPTX. One record ("Collected so far: 4 files
+  from 3 types") counts the files from LlamaGame and loading screens alike, with the best
+  score, and is kept from one launch to the next. When a file opens, the loading screen
   stays until the page on screen and up to nine after it are drawn ("Preparing the page
   pictures: 4 of 10"), so the review never opens on a blank page; while reviewing, the
   next two pages are drawn ahead, and each page picture is drawn only once.
@@ -169,7 +170,9 @@ files, study notes for pages a model refuses, and a mode for AI agents.
   start of a formula; the check then flagged the page. The free text path now writes
   `\$0.00`, which shows as $0.00 everywhere, and a Word file's money is written the same
   way. A file checked by an earlier version is checked again when it is opened, so its
-  notes use the new plain words.
+  notes use the new plain words, with all of a page's amounts in one note. On a page
+  converted before this fix, **Write the amounts as money** fixes them in one click.
+  Credits such as `-$4,822.35` count as money too.
 - **A refused request could reach the page as a network error.** When the server refused a
   request before reading what it sent, Windows reset the connection, now and then, instead
   of delivering the refusal. The server now reads the rest of the request first. This was

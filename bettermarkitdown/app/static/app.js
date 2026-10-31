@@ -76,9 +76,27 @@ function applyTheme(theme) {
   button.setAttribute("aria-label", button.title);
 }
 
+// LlamaGame's record (files collected, best score) lives in the settings, so it carries
+// from one launch to the next. Saved a moment after the last change, not on every file.
+let recordToKeep = null;
+let recordTimer = null;
+function keepGameRecord(record) {
+  recordToKeep = { ...recordToKeep, ...record };
+  clearTimeout(recordTimer);
+  recordTimer = setTimeout(saveGameRecord, 800);
+}
+async function saveGameRecord() {
+  clearTimeout(recordTimer);
+  if (!recordToKeep) return;
+  const record = recordToKeep;
+  recordToKeep = null;
+  try { await save(record); } catch (_) { /* the next change tries again */ }
+}
+
 async function refresh() {
   S.state = await api("/api/state");
   applyTheme(S.state.settings.theme);
+  Game.setRecord(S.state.settings);
   document.getElementById("nav-settings").hidden = !S.state.settings.setup_done;
   document.getElementById("nav-library").hidden = !S.state.settings.setup_done;
 }
@@ -632,6 +650,7 @@ async function agentPanel() {
 }
 
 async function quit() {
+  await saveGameRecord();
   try { await api("/api/quit", {}); } catch (_) { /* already stopping */ }
   clearInterval(keepAlive);
   root.replaceChildren(card("BetterMarkItDown has stopped", "You can close this tab. Open it again from its icon, or with: bettermarkitdown app"));
