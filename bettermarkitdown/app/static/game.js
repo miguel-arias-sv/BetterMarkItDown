@@ -697,9 +697,11 @@ const Game = (() => {
   }
 
   // --- every wait: LlamaCatch, then LlamaRun ----------------------------------------------
-  // LlamaCatch: files fall, faster as they go, and the llama walks (Left, Right) and jumps
-  // (Space, Up or a tap) to catch them; one it misses falls on, off the bottom of the
-  // screen. Nothing to hit, no way to lose, no Markdown.
+  // LlamaCatch: files are dropped from above and drift down slowly, like paper, and the
+  // llama walks (Left, Right) and jumps (Space, Up or a tap) to catch them; one it misses
+  // falls on, off the bottom of the screen. Nothing to hit, no way to lose, no Markdown.
+  // The falling is the game, so it stays when motion is reduced (Windows' animation
+  // effects off); only the sway and the scenery keep still then.
   // After 15 seconds of waiting the wait becomes a LlamaRun: the obstacle course, started
   // with Space or a tap, with its Markdown files. Waits one straight after another (a file
   // added, then looked through) are one wait: a runner that starts as another ends
@@ -709,7 +711,8 @@ const Game = (() => {
   let runners = 0;
 
   function runner(text) {
-    const RW = 160, RH = 56, FLOOR = 48, WALK = 70, FALL = 30;   // FALL: px/s each second
+    const RW = 160, RH = 56, FLOOR = 48, WALK = 70;
+    const FALL = 8, DRIFT = 18;                        // a dropped file: px/s each second, top speed
     const say = typeof text === "function" ? text : () => text;
     const id = (runners += 1);
     const c = document.createElement("canvas");
@@ -783,7 +786,7 @@ const Game = (() => {
     };
 
     // LlamaCatch, one frame: the llama walks and jumps; files fall past the floor and away.
-    const catchFiles = (dt, now, still) => {
+    const catchFiles = (dt, still) => {
       const walk = dt ? (me.right ? 1 : 0) - (me.left ? 1 : 0) : 0;
       me.walk = walk;
       if (walk) me.facing = walk;
@@ -794,26 +797,24 @@ const Game = (() => {
       me.y = Math.min(FLOOR, me.y + me.vy * dt);
       if (me.y >= FLOOR) me.vy = 0;
       dropIn -= dt;
-      if (dropIn <= 0 && docs.length < 3) {
+      if (dropIn <= 0 && docs.length < 4) {
         const kind = FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)];
-        const fx = 8 + Math.random() * (RW - 24);
-        // With reduced motion nothing falls: a file waits on the ground for 6 seconds.
-        docs.push(still ? { kind, x: fx, y: FLOOR - 9, vy: 0, born: now }
-                        : { kind, x: fx, y: -10, vy: 6 + Math.random() * 6, born: now });
+        docs.push({ kind, x: 10 + Math.random() * (RW - 28), y: -10, vy: 4 + Math.random() * 4,
+                    sway: Math.random() * 6.3 });
         dropIn = 1.0 + Math.random() * 0.9;
       }
       const body = { x: me.x + 1, y: me.y - 16, w: 13, h: 16 };
       for (const d of docs) {
-        if (!still) {
-          d.vy += FALL * dt;
-          d.y += d.vy * dt;
-        }
-        if (dt && hit(body, { x: d.x, y: d.y, w: 7, h: 9 })) {
+        d.vy = Math.min(DRIFT, d.vy + FALL * dt);
+        d.y += d.vy * dt;
+        d.sway += dt * 2.5;
+        d.at = still ? d.x : d.x + Math.sin(d.sway) * 3;      // side to side, as paper falls
+        if (dt && hit(body, { x: d.at, y: d.y, w: 7, h: 9 })) {
           d.gone = true;
           collect(d.kind);
           wait.caught += 1;
-          pops.push({ x: d.x + 3, y: d.y - 2, t: 0, text: `+1 ${d.kind.label}`, color: d.kind.color });
-        } else if (still ? now - d.born > 6000 : d.y > RH) {
+          pops.push({ x: d.at + 3, y: d.y - 2, t: 0, text: `+1 ${d.kind.label}`, color: d.kind.color });
+        } else if (d.y > RH) {
           d.gone = true;
           wait.missed += 1;
         }
@@ -822,7 +823,7 @@ const Game = (() => {
       pops = pops.filter((p) => (p.t += dt) < 0.9);
     };
 
-    const drawCatch = (t, now) => {
+    const drawCatch = (t) => {
       x.fillStyle = "#eef3f7";
       x.fillRect(0, 0, RW, RH);
       x.fillStyle = "#d5dfe8";
@@ -831,11 +832,7 @@ const Game = (() => {
       x.fillRect(0, FLOOR + 1, RW, 1);
       x.fillStyle = "#c7b299";
       for (let sx = 0; sx < RW; sx += 12) x.fillRect(sx, FLOOR + 4, 5, 1);
-      for (const d of docs) {
-        x.globalAlpha = d.vy ? 1 : Math.max(0, Math.min(1, (6000 - (now - d.born)) / 600));   // still: fades out
-        drawFile(x, d.x, d.y, d.kind.color);
-      }
-      x.globalAlpha = 1;
+      for (const d of docs) drawFile(x, d.at ?? d.x, d.y, d.kind.color);
       const pose = me.y < FLOOR || !me.walk ? "run1" : (Math.floor(stride / 9) % 2 ? "run1" : "run2");
       const img = sprite(pose);
       const top = Math.round(me.y - img.height + 1);
@@ -898,8 +895,8 @@ const Game = (() => {
         if (run.state === "running" && dt) run.update(dt);
         run.draw(x, t);
       } else {
-        catchFiles(dt, now, reduced());
-        drawCatch(t, now);
+        catchFiles(dt, reduced());
+        drawCatch(t);
       }
       t.fillStyle = "#3f5670";
       const dots = reduced() ? 3 : 1 + Math.floor(now / 400) % 3;
