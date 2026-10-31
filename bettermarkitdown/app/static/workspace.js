@@ -9,6 +9,8 @@ const ACCEPT = Object.keys(KINDS).join(",");
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const pageList = (pages, limit = 12) =>
   pages.slice(0, limit).join(", ") + (pages.length > limit ? ` and ${pages.length - limit} more` : "");
+// A wait on a PDF: PDF files count 2 in LlamaCatch.
+const pdfBonus = (isPdf) => (isPdf ? { bonus: "pdf" } : undefined);
 const fileUrl = (path, params) => `${path}?${new URLSearchParams({ ...params, t: TOKEN })}`;
 
 function size(bytes) {
@@ -165,6 +167,7 @@ screens.library = async () => {
   const input = h("input", { type: "file", id: "files", multiple: true, accept: ACCEPT, hidden: true });
   const addFiles = async (files) => {
     const added = [];
+    const pdf = pdfBonus(files.some((f) => f.name.toLowerCase().endsWith(".pdf")));
     await withLlama(uploads, files.length === 1 ? "Adding your file" : "Adding your files", async () => {
       for (const file of files) {
         const kind = "." + file.name.split(".").pop().toLowerCase();
@@ -187,7 +190,7 @@ screens.library = async () => {
         }
         bar.remove();
       }
-    });
+    }, pdf);
     input.value = "";
     if (added.length === 1 && files.length === 1) { show("doc", added[0].id); return; }
     const fresh = await api("/api/library");
@@ -291,7 +294,7 @@ function lastRunSummary(d) {
   return out;
 }
 
-function runPanel(job, id) {
+function runPanel(job, id, pdf) {
   const bar = h("progress", { max: 1 });
   bar.removeAttribute("value");
   const line = h("p", { role: "status", class: "explain", text: runLine(job) });
@@ -305,7 +308,7 @@ function runPanel(job, id) {
   const llama = waitLlama(() => {
     const j = Run.job && Run.job.id === job.id ? Run.job : job;
     return j.total ? `Converting: ${j.done} of ${j.total}` : "Converting";
-  });
+  }, pdfBonus(pdf));
   const node = h("div", { class: "run" }, h("h2", { text: "Converting" }), bar, line,
     h("p", { class: "explain", text: "You can leave this page, or close it: the conversion goes on, and finished pages are kept even if it stops." }),
     h("div", { class: "actions" }, stop, play), llama);
@@ -332,7 +335,7 @@ function runPanel(job, id) {
   return node;
 }
 
-function inspectingPanel(job, id) {
+function inspectingPanel(job, id, pdf) {
   const bar = h("progress", { max: 1 });
   bar.removeAttribute("value");
   const line = h("p", { class: "explain", role: "status", text: "Looking through the file..." });
@@ -343,7 +346,7 @@ function inspectingPanel(job, id) {
     // the results. Without the wait, a look that ended at once left the page stuck.
     setTimeout(() => { if (bar.isConnected) replace("doc", id); }, 0);
   }).catch((err) => { line.className = "error"; line.textContent = err.message; });
-  return h("div", {}, bar, line, waitLlama("Looking through the file"));
+  return h("div", {}, bar, line, waitLlama("Looking through the file", pdfBonus(pdf)));
 }
 
 // A converted file opens beside its review: the file's details in a narrow column, the
@@ -363,10 +366,10 @@ screens.doc = async (id, page) => {
     .filter(Boolean).join(" · ");
   const body = [];
   const looking = data.inspecting && data.inspecting.status === "running";
-  const facts = looking ? [inspectingPanel(data.inspecting, id)] : inspectionFacts(d);
+  const facts = looking ? [inspectingPanel(data.inspecting, id, d.kind === ".pdf")] : inspectionFacts(d);
   if (!beside) body.push(...facts);
 
-  if (mine) body.push(runPanel(running, id));
+  if (mine) body.push(runPanel(running, id, d.kind === ".pdf"));
   else body.push(...lastRunSummary(d));
 
   if (d.output_ready) {
@@ -501,7 +504,7 @@ function convertForm(d, engine, data, running, heading = true) {
       const job = await withLlama(status, "Starting", () => api("/api/doc/convert", {
         id: d.id, pages: pages ? pages.value.trim() : "", text_only: textOnly.checked,
         as_pages: asPages ? asPages.checked : false, whole_pages: whole ? whole.checked : false,
-        budget_usd: budget ? budget.value.trim() || 0 : 0, ...extra }));
+        budget_usd: budget ? budget.value.trim() || 0 : 0, ...extra }), pdfBonus(d.kind === ".pdf"));
       watchRun(job);
       replace("doc", d.id);
     } catch (err) {
@@ -670,7 +673,7 @@ async function reviewPanel(d, engine, pageArg) {
                                                   text_only: !engine.ready, whole_pages: d.whole_pages });
       watchRun(job);
       const forPage = page;
-      const llama = waitLlama(`Transcribing page ${forPage}`);
+      const llama = waitLlama(`Transcribing page ${forPage}`, pdfBonus(d.kind === ".pdf"));
       if (llama) notes.before(llama);
       onRun((j) => {
         if (!again.isConnected) return false;

@@ -706,11 +706,15 @@ const Game = (() => {
   // with Space or a tap, with its Markdown files. Waits one straight after another (a file
   // added, then looked through) are one wait: a runner that starts as another ends
   // carries on from it, LlamaRun included. It stops by itself once the wait is over.
+  //
+  // runner(text, { bonus: "pdf" }): a wait for a file of that kind (a PDF being added, read
+  // or converted). In LlamaCatch each file of that kind counts 2. A runner without a bonus
+  // that carries on a wait keeps the wait's.
   const RUN_AFTER = 15;                              // seconds of waiting before LlamaRun
   let wait = null;                                   // the wait in progress, shared
   let runners = 0;
 
-  function runner(text) {
+  function runner(text, { bonus = null } = {}) {
     const RW = 160, RH = 56, FLOOR = 48, WALK = 70;
     const FALL = 8, DRIFT = 18;                        // a dropped file: px/s each second, top speed
     const say = typeof text === "function" ? text : () => text;
@@ -777,7 +781,9 @@ const Game = (() => {
       const text = run
         ? `LlamaRun: ${run.metres()} m · +6 MD at ${run.coming()} m · ${triesTo(3 - runStreak, "3 MD")} · ` +
           `this wait: ${s(wait.caught, "file")} · longest run: ${Math.max(runBest, run.metres())} m`
-        : `LlamaCatch: ${wait.caught} caught · ${wait.missed} missed · LlamaRun in ${Math.ceil(RUN_AFTER - wait.waited)} s`;
+        : `LlamaCatch: ${wait.caught} caught · ${wait.missed} missed · ` +
+          (wait.bonus ? `${wait.bonus.toUpperCase()} files count 2 · ` : "") +
+          `LlamaRun in ${Math.ceil(RUN_AFTER - wait.waited)} s`;
       if (text !== said) line.textContent = said = text;
       const help = run
         ? "Space or tap: start, then jump. Down arrow: duck. Each signpost: +6 MD. Three tries in a row without one: +3 MD."
@@ -811,9 +817,10 @@ const Game = (() => {
         d.at = still ? d.x : d.x + Math.sin(d.sway) * 3;      // side to side, as paper falls
         if (dt && hit(body, { x: d.at, y: d.y, w: 7, h: 9 })) {
           d.gone = true;
-          collect(d.kind);
-          wait.caught += 1;
-          pops.push({ x: d.at + 3, y: d.y - 2, t: 0, text: `+1 ${d.kind.label}`, color: d.kind.color });
+          const worth = wait.bonus === d.kind.id ? 2 : 1;
+          collect(d.kind, worth);
+          wait.caught += worth;
+          pops.push({ x: d.at + 3, y: d.y - 2, t: 0, text: `+${worth} ${d.kind.label}`, color: d.kind.color });
         } else if (d.y > RH) {
           d.gone = true;
           wait.missed += 1;
@@ -877,9 +884,10 @@ const Game = (() => {
         seen = true;
         // Straight after another wait (within 3 seconds): the same wait, the same run.
         if (!wait || (wait.ended && now - wait.ended > 3000)) {
-          wait = { waited: 0, caught: 0, missed: 0, x: 22, course: null };
+          wait = { waited: 0, caught: 0, missed: 0, x: 22, course: null, bonus: null };
         }
         wait.owner = id;
+        if (bonus) wait.bonus = bonus;
         wait.ended = 0;
         me.x = wait.x;
       }

@@ -94,16 +94,17 @@ async function saveGameRecord() {
 }
 
 // Every wait has the llama running beside it (off with the "While you wait" setting).
-function waitLlama(text) {
-  return S.state && S.state.settings.offer_game === false ? null : Game.runner(text);
+// options: Game.runner's, as { bonus: "pdf" } for a wait on a PDF.
+function waitLlama(text, options) {
+  return S.state && S.state.settings.offer_game === false ? null : Game.runner(text, options);
 }
 
 // The llama after `anchor` while work() runs: from 300 ms in, since a shorter wait has
 // nothing to show, and gone when it ends.
-async function withLlama(anchor, text, work) {
+async function withLlama(anchor, text, work, options) {
   let llama = null;
   const later = setTimeout(() => {
-    llama = anchor.isConnected ? waitLlama(text) : null;
+    llama = anchor.isConnected ? waitLlama(text, options) : null;
     if (llama) anchor.after(llama);
   }, 300);
   try { return await work(); } finally { clearTimeout(later); if (llama) llama.remove(); }

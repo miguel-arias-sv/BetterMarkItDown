@@ -24,6 +24,7 @@ Every wait is now a little game, and the games' text is sharp.
   - **LlamaCatch** first: files are dropped from above and drift slowly down, and the llama
     walks and jumps to catch them; one it misses falls on, off the screen. No way to lose.
     The files fall even with Windows' animation effects off; only the scenery keeps still.
+    While your file is a PDF, each PDF file caught counts 2.
   - **LlamaRun** once the wait passes 15 seconds: an obstacle course started with Space or a
     tap. Each signpost (100 m, 300 m, 500 m...) gives 6 Markdown (MD) files, and three tries
     in a row that reach none give 3. The longest run is kept with the other records.
