@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How to report a problem without sharing copyrighted text
+    url: https://github.com/miguel-arias-sv/BetterMarkItDown/blob/main/CONTRIBUTING.md#reporting-a-conversion-problem
+    about: Page numbers and your own words are enough; please never paste a book's text.

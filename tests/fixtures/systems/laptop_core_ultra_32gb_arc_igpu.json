@@ -1,0 +1,25 @@
+{
+  "os": "Windows",
+  "os_version": "10.0.26300",
+  "arch": "AMD64",
+  "ollama": "",
+  "notes": [],
+  "disk_path": "C:\\Users\\someone\\.ollama\\models",
+  "cpu": "Intel(R) Core(TM) Ultra 7 155H",
+  "cores": 22,
+  "ram_gb": 32.0,
+  "ram_available_gb": 21.4,
+  "disk_free_gb": 603.7,
+  "gpus": [
+    {
+      "name": "Intel(R) Arc(TM) Graphics",
+      "vendor": "Intel",
+      "dedicated_gb": 0.12,
+      "shared_gb": 15.73,
+      "integrated": true,
+      "unified": false,
+      "driver": "",
+      "source": "DXGI"
+    }
+  ]
+}

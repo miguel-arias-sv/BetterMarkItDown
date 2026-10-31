@@ -1,7 +1,7 @@
 """Configuration, credentials and pricing.
 
-No secret is ever hard-coded here. The key is read at runtime from the
-environment or from a local .env file that is gitignored.
+No secret is ever hard-coded here. A key is read at runtime from the environment,
+a local .env file that is gitignored, or the operating system's password store.
 """
 
 from __future__ import annotations
@@ -10,20 +10,22 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Gemini speaks the OpenAI protocol at this base URL, so the `openai` client
-# library works against it unchanged - which is also what MarkItDown expects.
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+from . import credentials, settings
+from .providers import (
+    DEFAULT_PROVIDER,
+    GEMINI_BASE_URL,
+    PROVIDERS,
+    Provider,
+    get_provider,
+    infer_provider,
+    known_price,
+)
 
-DEFAULT_MODEL = "gemini-3.6-flash"
+DEFAULT_MODEL = PROVIDERS[DEFAULT_PROVIDER].default_model
 
 
 def get_base_url(explicit: str | None = None) -> str:
-    """Resolve the OpenAI-compatible endpoint to talk to.
-
-    Any server speaking the OpenAI chat-completions protocol works - Gemini,
-    OpenAI, OpenRouter, or a local Ollama / llama.cpp / LM Studio. Gemini stays
-    the default because it is what the cost table was measured against.
-    """
+    """Resolve the endpoint from a flag or the environment, else Gemini's."""
     if explicit:
         return explicit.strip()
     load_dotenv()
@@ -33,18 +35,38 @@ def get_base_url(explicit: str | None = None) -> str:
             return value
     return GEMINI_BASE_URL
 
-# Paid-tier list prices, USD per 1M tokens.
-# Source: https://ai.google.dev/gemini-api/docs/pricing (checked 2026-09-21).
-# The 3.x Flash rates are promotional through 2026-12-31 and double on
-# 2027-01-01. Override per run with --price-in / --price-out.
-PRICES: dict[str, tuple[float, float]] = {
-    "gemini-3.8-flash":      (0.75, 3.75),
-    "gemini-3.6-flash":      (0.75, 3.75),
-    "gemini-3.5-flash":      (1.50, 9.00),
-    "gemini-3.5-flash-lite": (0.30, 2.50),
-    "gemini-3.1-flash-lite": (0.30, 2.50),
-    "gemini-2.5-flash":      (0.30, 2.50),
-}
+
+def resolve_endpoint(provider: str | None = None,
+                     base_url: str | None = None) -> tuple[Provider, str]:
+    """Which provider to talk to, and at what URL.
+
+    An explicit --base-url wins, and names its provider unless --provider is also
+    given. Then --provider or $BMID_PROVIDER, at that provider's own URL. Then
+    $BMID_BASE_URL. Then the provider chosen on the setup page. Gemini is the
+    default, as it was before providers existed.
+    """
+    load_dotenv()
+    provider = provider or os.environ.get("BMID_PROVIDER", "").strip() or None
+    if base_url:
+        spec = get_provider(provider) if provider else infer_provider(base_url)
+        return spec, base_url.strip()
+    if provider:
+        spec = get_provider(provider)
+        url = spec.base_url or get_base_url()
+        if url == GEMINI_BASE_URL and spec.id != "gemini":
+            raise ValueError(f"{spec.name} needs an endpoint: pass --base-url or set "
+                             "BMID_BASE_URL.")
+        return spec, url
+    url = get_base_url()
+    if url == GEMINI_BASE_URL:            # nothing in the environment: the saved choice
+        saved = PROVIDERS.get(settings.load().provider)
+        if saved and saved.base_url:
+            return saved, saved.base_url
+    return infer_provider(url), url
+
+# Used when a Gemini model is not in the price table: the current Flash rate.
+# Override per run with --price-in / --price-out.
+PRICES: dict[str, tuple[float, float]] = PROVIDERS["gemini"].models
 FALLBACK_PRICE = (0.75, 3.75)
 
 
@@ -71,25 +93,48 @@ def load_dotenv(start: Path | None = None) -> None:
         return
 
 
-def get_model(explicit: str | None = None) -> str:
-    """Resolve the model name. BMID_MODEL lets you set a default per machine."""
+def get_model(explicit: str | None = None, provider: str | None = None) -> str:
+    """Resolve the model name: --model, then $BMID_MODEL, then the model saved on the
+    setup page for this provider, then the provider's default ("" if it has none).
+    Without a provider, Gemini's default, as before providers existed."""
     if explicit:
         return explicit.strip()
     load_dotenv()
     value = os.environ.get("BMID_MODEL", "").strip()
-    return value or DEFAULT_MODEL
+    if value:
+        return value
+    if provider is None:
+        return DEFAULT_MODEL
+    saved = settings.load()
+    if saved.provider == provider and saved.model:
+        return saved.model
+    return get_provider(provider).default_model or ""
 
 
-def get_api_key(explicit: str | None = None) -> str | None:
+def find_api_key(provider: str = DEFAULT_PROVIDER) -> tuple[str | None, str]:
+    """(key, where it came from) for one provider.
+
+    Only that provider's own variables are read: before 1.5 the Gemini key was
+    read first whatever the endpoint, so it could be sent to OpenAI's server.
+    """
+    spec = get_provider(provider)
+    load_dotenv()
+    for name in spec.key_env:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value, name
+    stored = credentials.stored_key(spec.id)
+    if stored:
+        return stored, "password store"
+    return None, ""
+
+
+def get_api_key(explicit: str | None = None,
+                provider: str = DEFAULT_PROVIDER) -> str | None:
     """Resolve the API key. Never logs or returns it anywhere user-visible."""
     if explicit:
         return explicit.strip()
-    load_dotenv()
-    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    return None
+    return find_api_key(provider)[0]
 
 
 def redact(key: str | None) -> str:
@@ -113,6 +158,7 @@ class Options:
     reasoning: str = "none"
     api_key: str | None = None
     base_url: str = GEMINI_BASE_URL
+    provider: str | None = None       # a PROVIDERS id; None: inferred from base_url
 
     dpi: int = 200
     max_edge: int = 1568
@@ -134,7 +180,13 @@ class Options:
     no_vision: bool = False
     save_images: bool = True
     ocr_fallback: bool = True
+    # A page the model refuses to transcribe (recitation filter) gets checked study notes
+    # in the model's own words instead (notes.py); local OCR only if those fail too.
+    study_notes: bool = True
     fresh: bool = False
+    # Ask the model again instead of reusing its cached answer ("transcribe this page
+    # again" on the setup page). Pays for every page it redoes.
+    ask_again: bool = False
 
     def resolved_work_dir(self) -> Path:
         return self.work_dir or self.output.parent / (self.output.stem + "_work")
@@ -143,11 +195,17 @@ class Options:
         return self.output.parent / (self.output.stem + "_assets")
 
     def is_gemini(self) -> bool:
+        if self.provider:
+            return self.provider == "gemini"
         return self.base_url.rstrip("/") == GEMINI_BASE_URL.rstrip("/")
 
+    def provider_spec(self) -> Provider:
+        return get_provider(self.provider) if self.provider else infer_provider(self.base_url)
+
     def prices(self) -> tuple[float, float]:
-        if self.model in PRICES:
-            base = PRICES[self.model]
+        listed = known_price(self.model)
+        if listed:
+            base = listed
         elif self.is_gemini():
             base = FALLBACK_PRICE
         else:
@@ -172,8 +230,10 @@ class Result:
     failed: list[int] = field(default_factory=list)
     truncated: list[int] = field(default_factory=list)   # cut off at the output-token cap
     pages_small_images: list[int] = field(default_factory=list)  # images below figure size
+    pages_notes: list[int] = field(default_factory=list)  # refused pages given study notes
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
     cost: float = 0.0
     stopped_reason: str = ""
+    unit: str = "page"          # what the counts above count: pages, or pictures (DOCX/PPTX)

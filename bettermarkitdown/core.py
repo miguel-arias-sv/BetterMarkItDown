@@ -21,7 +21,6 @@ vision layer around it:
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
 import json
@@ -33,15 +32,19 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote
 
+from . import notes as study
 from . import ocr as local_ocr
 from .config import GEMINI_BASE_URL, Options, Result
 from .prompts import FIGURE_PROMPT, PAGE_PROMPT
+from .providers import (
+    DailyQuotaExceeded,
+    as_vision_client,
+    get_provider,
+    infer_provider,
+    make_client,
+)
 
 Event = Callable[[str, dict], None]
-
-
-class DailyQuotaExceeded(RuntimeError):
-    """The key's per-day quota for this model is gone; waiting will not help."""
 
 
 class BudgetExceeded(RuntimeError):
@@ -52,8 +55,10 @@ class PageFailed(RuntimeError):
     """Vision produced nothing for a page and no fallback recovered it."""
 
 
-ABORT = threading.Event()
-NO_REASONING_PARAM: set[str] = set()
+# Each run has its own stop signal (a threading.Event), passed down as `abort`: the
+# budget, a daily quota or the page's Stop button sets it, and only that run stops.
+# The setup page's server can run a conversion next to a speed test, so one shared
+# flag would let either stop, or restart, the other.
 
 # Output-token caps, tried in order. Almost every page fits in the first; a dense
 # full-page table does not, and a reply cut off at the cap used to be cached as if
@@ -122,11 +127,13 @@ class Meter:
     is why `reasoning="none"` is the default.
     """
 
-    def __init__(self, price_in: float, price_out: float, budget: float = 0.0):
+    def __init__(self, price_in: float, price_out: float, budget: float = 0.0,
+                 abort: threading.Event | None = None):
         self._lock = threading.Lock()
         self.price_in = price_in
         self.price_out = price_out
         self.budget = budget
+        self.abort = abort if abort is not None else threading.Event()
         self.calls = 0
         self.tok_in = 0
         self.tok_out = 0
@@ -143,7 +150,7 @@ class Meter:
             self.tok_out += max(completion, total - prompt)
             over = self.budget and self.cost() > self.budget
         if over:
-            ABORT.set()
+            self.abort.set()
 
     def cost(self) -> float:
         return (self.tok_in * self.price_in + self.tok_out * self.price_out) / 1e6
@@ -182,48 +189,38 @@ def cut_off(finish_reason: str) -> bool:
 
 def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
                    limiter: RateLimiter, meter: Meter | None = None,
-                   reasoning: str = "none", max_retries: int = 5) -> str:
+                   reasoning: str = "none", max_retries: int = 5,
+                   abort: threading.Event | None = None, use_cache: bool = True) -> str:
+    """Transcribe one image. `client` is a providers.VisionClient, or a raw
+    `openai.OpenAI` client as before 1.5. `abort` defaults to the meter's run signal.
+    `use_cache=False` asks the model again even when an earlier answer is cached."""
+    if abort is None:
+        abort = meter.abort if meter is not None else threading.Event()
     key = hashlib.sha256(png + prompt.encode() + model.encode()
                          + str(reasoning).encode()).hexdigest()
-    hit = cache.get(key)
+    hit = cache.get(key) if use_cache else None
     if hit is not None and has_content(hit):   # older runs cached comment-only blanks
         return hit
 
-    b64 = base64.b64encode(png).decode("ascii")
+    client = as_vision_client(client)
     delay = 4.0
     last_err: Exception | None = None
     step = 0                   # index into MAX_TOKENS
     partial = ""               # the longest cut-off reply so far
 
     for attempt in range(max_retries):
-        if ABORT.is_set():
+        if abort.is_set():
             raise BudgetExceeded("aborted")
         try:
             limiter.wait()
-            extra = {}
-            if reasoning and reasoning != "default" and model not in NO_REASONING_PARAM:
-                extra["reasoning_effort"] = reasoning
-
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url",
-                         "image_url": {"url": "data:image/png;base64," + b64}},
-                    ],
-                }],
-                temperature=0.0,
-                max_tokens=MAX_TOKENS[step],
-                **extra,
-            )
+            reply = client.describe(png, prompt, model=model, max_tokens=MAX_TOKENS[step],
+                                    reasoning=reasoning)
             if meter is not None:
-                meter.add(getattr(response, "usage", None))
+                meter.add(reply.usage)
 
-            text = (response.choices[0].message.content or "").strip()
+            text = (reply.text or "").strip()
             text = re.sub(r"^```(?:markdown)?\s*|\s*```$", "", text).strip()
-            reason = str(response.choices[0].finish_reason or "")
+            reason = reply.finish_reason
 
             if cut_off(reason):
                 # A reply that hit the cap is incomplete, however long it looks.
@@ -254,23 +251,20 @@ def describe_image(client, model: str, png: bytes, prompt: str, *, cache: Cache,
             cache.put(key, text)
             return text
 
+        except DailyQuotaExceeded:
+            abort.set()
+            raise
         except Exception as exc:
             last_err = exc
             message = str(exc)
-            if "PerDay" in message or "RequestsPerDay" in message:
-                ABORT.set()
-                raise DailyQuotaExceeded(message) from exc
-            if "reasoning_effort" in message and model not in NO_REASONING_PARAM:
-                NO_REASONING_PARAM.add(model)     # older model: drop the param
-                continue
             if partial and step > 0 and re.search(r"max_tokens|context|too large", message, re.I):
                 # A local server whose context is smaller than the larger cap.
                 return partial + TRUNCATION_NOTE
-            if ABORT.is_set():
+            if abort.is_set():
                 raise BudgetExceeded(message) from exc
             if attempt == max_retries - 1:
                 break
-            time.sleep(_retry_after(message) or delay)
+            time.sleep(getattr(exc, "retry_after", 0) or _retry_after(message) or delay)
             delay *= 2
 
     return f"*[vision call failed: {type(last_err).__name__}: {last_err}]*"
@@ -432,6 +426,9 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
         text = markitdown_page_text(md, doc, index)
         if text.startswith("*[MarkItDown failed") and native:
             text = native + "\n\n<!-- text layer read by PyMuPDF: MarkItDown errored here -->"
+        # A text layer holds no formulas, so each $ in it is money or a symbol. Escaped,
+        # a viewer shows "$0.00" instead of starting a formula there.
+        text = re.sub(r"(?<!\\)\$", r"\\$", text)
 
         parts = [f"\n\n---\n\n## Page {index + 1}\n"]
         assets = opts.assets_dir()
@@ -444,9 +441,24 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                 (assets / f"page_{index + 1:04d}.png").write_bytes(png)
 
             body = describe_image(client, opts.model, png, PAGE_PROMPT, cache=cache,
-                                  limiter=limiter, meter=meter, reasoning=opts.reasoning)
+                                  limiter=limiter, meter=meter, reasoning=opts.reasoning,
+                                  use_cache=not opts.ask_again)
 
             if not has_content(body) or body.startswith("*[vision call failed"):
+                if opts.study_notes and study.refused(body):
+                    # Notes on the page in the model's own words, never its text: see
+                    # notes.py. Three requests at most, each cached like any other.
+                    def ask(img: bytes, prompt: str) -> str:
+                        reply = describe_image(client, opts.model, img, prompt, cache=cache,
+                                               limiter=limiter, meter=meter,
+                                               reasoning=opts.reasoning, max_retries=2,
+                                               use_cache=not opts.ask_again)
+                        return "" if reply.startswith("*[vision call failed") else reply
+
+                    written = study.study_notes(ask, png, native, index + 1)
+                    if written:
+                        parts.append(written)
+                        return index, "\n".join(parts), False, False, small
                 recovered = local_ocr.ocr_page(page, opts.dpi) if opts.ocr_fallback else None
                 if recovered:
                     parts.append(
@@ -480,10 +492,10 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
 
                 description = describe_image(client, opts.model, png, FIGURE_PROMPT,
                                              cache=cache, limiter=limiter, meter=meter,
-                                             reasoning=opts.reasoning)
+                                             reasoning=opts.reasoning,
+                                             use_cache=not opts.ask_again)
                 truncated = truncated or TRUNCATED_TAG in description
-                quoted = "\n".join("> " + line if line.strip() else ">"
-                                   for line in description.splitlines())
+                quoted = quote_block(description)
                 parts.append(
                     f"\n\n![Page {index + 1}, figure {n}]({md_link(f'{assets.name}/{name}')})"
                     f"\n\n**Figure {index + 1}.{n} - transcribed by {opts.model}:**\n\n{quoted}")
@@ -513,25 +525,49 @@ def parse_pages(spec: str | None, total: int) -> list[int]:
     return sorted(p for p in out if 0 <= p < total)
 
 
-def list_models(api_key: str, base_url: str = GEMINI_BASE_URL) -> list[str]:
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key or "not-needed", base_url=base_url)
-    skip = ("embedding", "tts", "live", "robotics")
-    names = [m.id.replace("models/", "") for m in client.models.list()]
-    if base_url.rstrip("/") != GEMINI_BASE_URL.rstrip("/"):
-        # A non-Gemini endpoint: we cannot guess which of its models see images,
-        # so list everything it offers rather than filtering to nothing.
-        return sorted(names)
-    return [n for n in names if "gemini" in n and not any(w in n for w in skip)]
+def list_models(api_key: str | None, base_url: str = GEMINI_BASE_URL,
+                provider: str | None = None) -> list[str]:
+    spec = get_provider(provider) if provider else infer_provider(base_url)
+    return make_client(spec, api_key, base_url).list_models()
 
 
-def convert(opts: Options, on_event: Event | None = None) -> Result:
-    """Convert a PDF to Markdown. `on_event(name, payload)` reports progress."""
+def vision_client(opts: Options):
+    """The run's vision client, or None with no_vision. Refuses to start without a key
+    for a provider that needs one, rather than failing on the first page."""
+    if opts.no_vision:
+        return None
+    spec = opts.provider_spec()
+    if not opts.api_key and spec.needs_key:
+        raise RuntimeError(f"No API key for {spec.name}. Run `bettermarkitdown key set "
+                           f"{spec.id}`, set {' or '.join(spec.key_env)}, or use no_vision.")
+    return make_client(spec, opts.api_key, opts.base_url)
+
+
+def quote_block(text: str) -> str:
+    """Markdown blockquote, keeping blank lines inside it."""
+    return "\n".join("> " + line if line.strip() else ">" for line in text.splitlines())
+
+
+def assemble_output(output: Path, pages_dir: Path, *, title: str, source_name: str,
+                    model: str, note: str = "") -> None:
+    """Write the output .md from every page file in `pages_dir`, in page order."""
+    header = (f"# {title}\n\n{note}<!-- Converted from {source_name} with BetterMarkItDown "
+              f"({model}) on {time.strftime('%Y-%m-%d %H:%M')} -->\n")
+    body = [f.read_text(encoding="utf-8")
+            for f in sorted(pages_dir.glob("[0-9][0-9][0-9][0-9].md"))]
+    tmp = output.with_suffix(".md.tmp")
+    tmp.write_text(header + "".join(body) + "\n", encoding="utf-8", newline="\n")
+    tmp.replace(output)
+
+
+def convert(opts: Options, on_event: Event | None = None,
+            abort: threading.Event | None = None) -> Result:
+    """Convert a PDF to Markdown. `on_event(name, payload)` reports progress. Setting
+    `abort` stops the run: pages in progress are left unwritten, for a rerun."""
     import pymupdf
     from markitdown import MarkItDown
-    from openai import OpenAI
 
-    ABORT.clear()
+    abort = abort if abort is not None else threading.Event()
 
     def emit(name: str, **payload):
         if on_event:
@@ -542,18 +578,15 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
     pages_dir.mkdir(parents=True, exist_ok=True)
     opts.output.parent.mkdir(parents=True, exist_ok=True)
 
-    client = None
-    if not opts.no_vision:
-        if not opts.api_key and opts.is_gemini():
-            raise RuntimeError("No API key. Set GEMINI_API_KEY (or use no_vision).")
-        # Local servers accept any non-empty key; the openai client demands one.
-        client = OpenAI(api_key=opts.api_key or "not-needed",
-                        base_url=opts.base_url, timeout=180.0)
+    client = vision_client(opts)
 
-    # MarkItDown still receives the client: unused on the PDF path, but it is what
-    # makes md.convert("figure.png") work if you reuse this object for images.
-    md = (MarkItDown(enable_plugins=False, llm_client=client, llm_model=opts.model)
-          if client else MarkItDown(enable_plugins=False))
+    # MarkItDown still receives an OpenAI-protocol client when there is one: unused on
+    # the PDF path, but it is what makes md.convert("figure.png") work if you reuse
+    # this object for images.
+    openai_protocol = client is not None and opts.provider_spec().protocol == "openai"
+    llm = getattr(client, "sdk", None) if openai_protocol else None
+    md = (MarkItDown(enable_plugins=False, llm_client=llm, llm_model=opts.model)
+          if llm else MarkItDown(enable_plugins=False))
 
     doc = pymupdf.open(opts.pdf)
     total = doc.page_count
@@ -564,7 +597,7 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
         raise RuntimeError("No pages selected.")
 
     price_in, price_out = opts.prices()
-    meter = Meter(price_in, price_out, opts.budget_usd)
+    meter = Meter(price_in, price_out, opts.budget_usd, abort)
     cache = Cache(work_dir / "cache.json")
     limiter = RateLimiter(opts.rpm)
 
@@ -584,21 +617,16 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
         # those pages alone and throw the rest of the book away.
         note = (f"<!-- IN PROGRESS: {result.pages_converted} of {len(targets)} pages so far; "
                 "this file is rewritten as the run continues. -->\n" if partial else "")
-        header = (f"# {opts.title or opts.pdf.stem}\n\n{note}<!-- Converted from "
-                  f"{opts.pdf.name} with BetterMarkItDown ({opts.model}) on "
-                  f"{time.strftime('%Y-%m-%d %H:%M')} -->\n")
-        body = [f.read_text(encoding="utf-8")
-                for f in sorted(pages_dir.glob("[0-9][0-9][0-9][0-9].md"))]
-        tmp = opts.output.with_suffix(".md.tmp")
-        tmp.write_text(header + "".join(body) + "\n", encoding="utf-8", newline="\n")
-        tmp.replace(opts.output)
+        assemble_output(opts.output, pages_dir, title=opts.title or opts.pdf.stem,
+                        source_name=opts.pdf.name, model=opts.model, note=note)
 
     emit("start", total=total, selected=len(targets), todo=len(todo), done=already_done)
     assemble(partial=bool(todo))     # the output file exists from the first second
 
     def run(index: int) -> None:
-        if ABORT.is_set():
+        if abort.is_set():
             return
+        emit("page_start", page=index + 1)
         try:
             idx, text, used_ocr, truncated, small = process_page(
                 index, pdf_path=str(opts.pdf), md=md, client=client,
@@ -617,6 +645,8 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
         (pages_dir / f"{idx + 1:04d}.md").write_text(text, encoding="utf-8", newline="\n")
         with lock:
             result.pages_converted += 1
+            if study.SOURCE_TAG in text:
+                result.pages_notes.append(idx + 1)
             if used_ocr:
                 result.pages_ocr.append(idx + 1)
             if truncated:
@@ -626,7 +656,8 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
             count = result.pages_converted
             if count % 10 == 0:
                 assemble(partial=True)
-        emit("page_done", page=idx + 1, done=count, total=len(targets), ocr=used_ocr)
+        emit("page_done", page=idx + 1, done=count, total=len(targets), ocr=used_ocr,
+             cost=meter.cost())
 
     if todo:
         with ThreadPoolExecutor(max_workers=max(1, opts.workers)) as pool:
@@ -642,7 +673,8 @@ def convert(opts: Options, on_event: Event | None = None) -> Result:
     result.failed.sort()
     result.truncated.sort()
     result.pages_small_images.sort()
-    if ABORT.is_set() and opts.budget_usd and meter.cost() > opts.budget_usd:
+    result.pages_notes.sort()
+    if abort.is_set() and opts.budget_usd and meter.cost() > opts.budget_usd:
         result.stopped_reason = "budget"
     emit("finished", result=result)
     return result

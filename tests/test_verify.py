@@ -406,3 +406,55 @@ def test_latex_outside_math_and_links_with_spaces_are_caught(bad):
 def test_math_and_well_formed_links_pass(fine):
     from bettermarkitdown.verify import markup_problems
     assert markup_problems(fine) == []
+
+
+def test_the_converters_own_pictures_and_labels_are_not_page_text():
+    """Page 85's scan link says "Page 85 scan"; that is not on page 85, and neither is a
+    figure's "transcribed by" label. They used to flag every page converted with them."""
+    from bettermarkitdown.verify import check_page
+    pdf_text = ("The mean of the sample is 4.3 and its variance is 2.1. A larger sample "
+                "would narrow the interval estimate, other things being equal. ") * 3
+    md = ("\n\n---\n\n## Page 85\n<!-- source: full-page vision transcription -->\n\n"
+          + pdf_text + "\n\n"
+          "![Page 85, figure 1](Book_assets/page_0085_fig_01.png)\n\n"
+          "**Figure 85.1 - transcribed by gemini-3.6-flash:**\n\n> A bar chart.\n\n"
+          "![Page 85 scan](Book%20Name_assets/page_0085.png)")
+    assert check_page(pdf_text, md, 85).status == "ok"
+
+
+def test_the_setup_page_gets_each_fault_in_plain_words():
+    """The --verify report names faults for whoever fixes the Markdown; a person reviewing
+    their file sees what is wrong and what to do, without the jargon."""
+    from bettermarkitdown.verify import PageCheck, markup_problems, math_problems, page_notes
+
+    md = ("| Balance | $0.00     |\n\nbook.$^{24}$ text\n\n[^3]:\n\n"
+          r"$$a = b \tag{1} \\ c = d \tag{2}$$" "\n\n" r"\begin{aligned} x" "\n")
+    r = PageCheck(page=1, pdf_words=10, math=math_problems(md), markup=markup_problems(md))
+    notes = page_notes(r)
+    assert len(notes) == len(r.math) + len(r.markup) == 6
+    assert (r"Maths code outside a formula (\begin{aligned}) shows as code. Put the equation "
+            "between $$ and $$, or write a lone equation number as (n)." in notes)
+    assert ("A dollar amount, $0.00, may show as the start of a formula in some Markdown "
+            r"viewers. Put a backslash before it, \$0.00, and it shows as money everywhere."
+            in notes)
+    assert (r"A formula opens \begin{aligned} without its \end{aligned}, so it will not show."
+            in notes)
+    assert ("A formula has more than one equation number, so it will not show. Give each "
+            "numbered line its own $$...$$." in notes)
+    assert "Footnote 3 has no text." in notes
+    assert any(n.startswith("A footnote number is written as a formula ($^{24}$)") for n in notes)
+    assert not any(n.startswith(("Markup:", "Broken maths:")) or "unescaped" in n for n in notes)
+
+
+def test_dollar_amounts_on_a_page_are_one_note_and_credits_count():
+    """A statement: three amounts gave three nearly identical notes, and the credit
+    -$4,822.35 was not seen at all."""
+    from bettermarkitdown.verify import PageCheck, markup_problems, page_notes
+
+    md = "| Fees | $612.35 |\n| Payment | -$4,822.35 |\n| Balance | $0.00 |\n"
+    r = PageCheck(page=1, pdf_words=6, markup=markup_problems(md))
+    assert len(r.markup) == 3
+    assert page_notes(r) == [
+        "3 dollar amounts ($612.35, $4,822.35, $0.00) may show as the start of a formula in "
+        r"some Markdown viewers. Put a backslash before each, as in \$612.35, and they show "
+        "as money everywhere."]

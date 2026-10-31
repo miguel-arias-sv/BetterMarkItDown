@@ -1,0 +1,25 @@
+{
+  "os": "Windows",
+  "os_version": "10.0.26100",
+  "arch": "AMD64",
+  "ollama": "",
+  "notes": [],
+  "disk_path": "C:\\Users\\someone\\.ollama\\models",
+  "cpu": "AMD Ryzen 7 5800X 8-Core Processor",
+  "cores": 16,
+  "ram_gb": 16.0,
+  "ram_available_gb": 10.0,
+  "disk_free_gb": 500.0,
+  "gpus": [
+    {
+      "name": "NVIDIA GeForce RTX 3060",
+      "vendor": "NVIDIA",
+      "dedicated_gb": 12.0,
+      "shared_gb": 0.0,
+      "integrated": false,
+      "unified": false,
+      "driver": "566.36",
+      "source": "nvidia-smi"
+    }
+  ]
+}

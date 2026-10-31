@@ -28,8 +28,10 @@ def section(changelog: str, version: str) -> str | None:
     if not m:
         return None
     # GitHub release notes keep single line breaks, so rejoin the hard-wrapped
-    # continuation lines of each bullet into one line.
-    return re.sub(r"\n {2,}(?=\S)", " ", m.group(1).strip())
+    # continuation lines of each bullet, and of each plain paragraph, into one line.
+    # An indented "- " starts a nested bullet, which keeps its own line.
+    text = re.sub(r"\n {2,}(?!- )(?=\S)", " ", m.group(1).strip())
+    return re.sub(r"(?<=[^\n])\n(?=[^\s#>|-])", " ", text)
 
 
 def main(argv: list[str]) -> int:
@@ -47,8 +49,11 @@ def main(argv: list[str]) -> int:
         return 1
     sys.stdout.reconfigure(encoding="utf-8")
     print(notes)
-    print("\n---\nInstall: `pip install bettermarkitdown-" + version + "-py3-none-any.whl` "
-          "(attached below), or see the README. Full history: CHANGELOG.md.")
+    repo = "https://github.com/miguel-arias-sv/BetterMarkItDown/blob/main"
+    print(f"\n---\nInstall on Windows: `BetterMarkItDown-Setup-{version}.exe` (attached below). "
+          f"With pip: `pip install bettermarkitdown-{version}-py3-none-any.whl`. "
+          f"Full history: CHANGELOG.md.\n\n"
+          f"[Code signing policy]({repo}/CODE_SIGNING_POLICY.md) · [Privacy]({repo}/PRIVACY.md)")
     return 0
 
 

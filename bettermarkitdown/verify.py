@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .core import TRUNCATED_TAG
+from .notes import SOURCE_TAG as _NOTES_SOURCE
 
 _WORD = re.compile(r"[A-Za-z]+")
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
@@ -34,6 +35,11 @@ _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _SPACED_THOUSANDS = re.compile(
     r"(?<![\d.,])\d{1,3}(?:,?[    ]\d{3})+(?![\d,]|\.\d)")
 _LINK_TARGET = re.compile(r"\]\([^)\s]*\)")       # [text](url): the url is not page text
+# What the converter adds itself: its picture of the page or of a figure, and the label
+# over a figure's description. "Page 85 scan" is not on page 85, so none of it may count
+# as the page's words or numbers.
+_OWN_IMAGE = re.compile(r"!\[Page \d+(?: scan|, figure \d+)\]\([^)\n]*\)")
+_OWN_LABEL = re.compile(r"^\*\*(?:Figure|Picture) [\d.]+ - transcribed by [^*\n]*:\*\*$", re.M)
 # Typeset ligatures come out of the text layer as single glyphs (ﬁ, ﬀ) or vanish,
 # so drop the letter pairs from both sides rather than guess which happened.
 _LIGATURES = re.compile(r"ffi|ffl|ff|fi|fl")
@@ -100,6 +106,7 @@ class PageCheck:
     # Table words with no match in the text layer, on a page holding an image: the
     # table is most likely that image. Listed, but they do not flag the page.
     from_image: Counter = field(default_factory=Counter)
+    notes: bool = False              # study notes on a refused page, not its text
 
     @property
     def flagged(self) -> bool:
@@ -135,6 +142,7 @@ def split_markdown(md: str) -> tuple[str, str]:
     md = _COMMENT.sub(" ", md)
     other = " ".join(_MATH.findall(md))
     prose = _MATH.sub(" ", md)
+    prose = _OWN_LABEL.sub(" ", _OWN_IMAGE.sub(" ", prose))
     prose = _LINK_TARGET.sub("] ", prose)
     prose = _REVIEW_MARK.sub(" ", prose)
     other += " " + " ".join(_QUOTE_LINE.findall(prose))
@@ -167,8 +175,9 @@ _LATEX_OUTSIDE_MATH = re.compile(
 # A link or image whose target holds a space: CommonMark ends the target there, so
 # '[Exercise 9.29](Exercise 9.29)' prints as plain text. 'url "title"' is allowed.
 _SPACED_LINK = re.compile(r"!?\[[^\]\n]*\]\((?!<)([^)\n]*\s[^)\n]*)\)")
-# `$` + an amount that is not a closed `$12$` formula.
-_CURRENCY = re.compile(r"(?:(?<=[\s(“—–])|^)\$(?=\d[\d,]*(?:\.\d+)?(?:s\b|[\s,.;:)\-–]|$))"
+# `$` + an amount that is not a closed `$12$` formula. A minus may come first: statements
+# print credits as -$4,822.35.
+_CURRENCY = re.compile(r"(?:(?<=[\s(“—–-])|^)\$(?=\d[\d,]*(?:\.\d+)?(?:s\b|[\s,.;:)\-–]|$))"
                        r"(?![\d,.]*\$)", re.M)
 
 
@@ -332,6 +341,10 @@ def check_page(pdf_text: str, md: str, page: int, *, max_diff: int = 1,
     truncated = TRUNCATED_TAG in md
     math = math_problems(md)
     markup = markup_problems(md)
+    if _NOTES_SOURCE in md:
+        # Notes are in other words by design: comparing words would flag them all.
+        return PageCheck(page, len(_words(pdf_text)), status="notes", notes=True, math=math,
+                         markup=markup)
     prose, other = split_markdown(md)
     md_words = Counter(_words(prose))
     raw = _words(pdf_text)
@@ -431,6 +444,94 @@ def add_render_check(results: list[PageCheck], work_dir: Path) -> str:
             if failed else "Math render check (KaTeX): every formula renders.")
 
 
+def page_notes(r: PageCheck, limit: int = 12) -> list[str]:
+    """What to look at on one page, in a sentence each: the setup page's badges."""
+    def show(c: Counter) -> str:
+        return ", ".join(w for w, _ in c.most_common(limit))
+
+    notes = []
+    if r.status == "flagged":
+        parts = [f"missing here: {show(r.missing)}" if r.missing else "",
+                 f"not in the PDF: {show(r.extra)}" if r.extra else ""]
+        notes.append("The words differ from the PDF's own text ("
+                     + "; ".join(p for p in parts if p) + ").")
+        if r.numbers_missing or r.numbers_extra:
+            parts = [f"missing here: {show(r.numbers_missing)}" if r.numbers_missing else "",
+                     f"not in the PDF: {show(r.numbers_extra)}" if r.numbers_extra else ""]
+            notes.append("Numbers differ (" + "; ".join(p for p in parts if p) + ").")
+    if r.truncated:
+        notes.append("Cut off: the model reached its output limit, so the end of the page "
+                     "is missing. Finish it from the page image.")
+    if r.ocr:
+        notes.append("Read by the local OCR fallback, because the model refused this page: "
+                     "the words may be right, but maths and layout are unreliable. Read this "
+                     "page in the original.")
+    if r.notes:
+        notes.append("Study notes, not the page's text: the model refused to transcribe this "
+                     "page. For exact wording and figures, read it in the original.")
+    # Dollar amounts come as one note, however many: a statement has dozens.
+    amounts = [m.group(1) for m in (re.match(_MONEY, p) for p in r.markup) if m]
+    if len(amounts) == 1:
+        notes.append(_in_plain_words(next(p for p in r.markup if re.match(_MONEY, p))))
+    elif amounts:
+        more = f" and {len(amounts) - 6} more" if len(amounts) > 6 else ""
+        listed = ", ".join(amounts[:6]) + more
+        notes.append(f"{len(amounts)} dollar amounts ({listed}) may show as the start of a "
+                     "formula in some Markdown viewers. Put a backslash before each, as in "
+                     f"\\{amounts[0]}, and they show as money everywhere.")
+    notes += [_in_plain_words(p) for p in r.math + r.markup if not re.match(_MONEY, p)]
+    return notes
+
+
+# The --verify report names each fault for whoever fixes the Markdown; the setup page
+# says the same in plain words. Anything not listed here keeps its report wording.
+# The library keeps each page's notes, so change NOTES_WORDING with the words: a file
+# checked with older words is then checked again when it is opened.
+NOTES_WORDING = 3
+_MONEY = r"unescaped dollar sign, probably money '(\$[\d,.]*)"
+_PLAIN = [
+    (_MONEY,
+     "A dollar amount, {0}, may show as the start of a formula in some Markdown viewers. "
+     "Put a backslash before it, \\{0}, and it shows as money everywhere."),
+    (r"unmatched \$\$", "A formula is missing its opening or closing $$, so the maths after "
+                        "it may not show."),
+    (r"blank line inside a display equation",
+     "A formula has a blank line inside it, which stops it showing. Remove the blank line."),
+    (r"review note inside a display equation",
+     "A review note sits inside a formula, which stops it showing. Move it below the $$."),
+    (r"more than one \\tag",
+     "A formula has more than one equation number, so it will not show. Give each numbered "
+     "line its own $$...$$."),
+    (r"unmatched \\begin\{(.+?)\}",
+     "A formula opens \\begin{{{0}}} without its \\end{{{0}}}, so it will not show."),
+    (r"footnote \[\^(\w+)\] has no text", "Footnote {0} has no text."),
+    (r"footnote \[\^(\w+)\] is a placeholder",
+     "Footnote {0} holds a placeholder, not the book's note. Its text is probably printed "
+     "elsewhere, such as the end of the chapter."),
+    (r"footnote \[\^(\w+)\] repeats", "Footnote {0} repeats a sentence from the page."),
+    (r"footnote marker written as math '(.+?)'",
+     "A footnote number is written as a formula ({0}), so it shows as a superscript, not "
+     "a footnote. Write it as [^n]."),
+    (r"note label fused to its text '(.+?)'",
+     "A footnote's number runs into its text ({0}). Write it as [^n]: followed by the text."),
+    (r"LaTeX table command",
+     "A table uses LaTeX commands (such as \\hline) that Markdown tables cannot show."),
+    (r"LaTeX outside \$\$\.\.\.\$\$ '(.+?)'",
+     "Maths code outside a formula ({0}) shows as code. Put the equation between $$ and "
+     "$$, or write a lone equation number as (n)."),
+    (r"link target with a space '(.+?)'",
+     "A link with a space in its address shows as plain text: {0}"),
+]
+
+
+def _in_plain_words(problem: str) -> str:
+    for pattern, text in _PLAIN:
+        m = re.match(pattern, problem)
+        if m:
+            return text.format(*(g.replace("\\\\", "\\") for g in m.groups()))
+    return problem[:1].upper() + problem[1:] + "."
+
+
 def format_report(results: list[PageCheck], limit: int = 20,
                   render_note: str | None = None) -> str:
     def show(c: Counter) -> str:
@@ -452,7 +553,10 @@ def format_report(results: list[PageCheck], limit: int = 20,
                          "the rest of the page is missing. Finish it from the PDF.")
         if r.ocr:
             lines.append(f"page {r.page}: still local-OCR text -- the words may match, but "
-                         "math and layout are unreliable. Retype it from the page image.")
+                         "math and layout are unreliable. Read this page in the original.")
+        if r.notes:
+            lines.append(f"page {r.page}: study notes, not the page's text (the model "
+                         "refused it) -- read it in the original for exact wording.")
         if r.math:
             lines.append(f"page {r.page}: broken math -- {'; '.join(r.math)}")
         for problem in r.markup:
@@ -463,9 +567,11 @@ def format_report(results: list[PageCheck], limit: int = 20,
     n_ocr = sum(r.ocr for r in results)
     n_math = sum(bool(r.math) for r in results)
     n_cut = sum(r.truncated for r in results)
+    n_notes = sum(r.notes for r in results)
     lines.append(f"\n{counts['ok']} page(s) match the text layer, {counts['flagged']} flagged, "
                  f"{n_ocr} still OCR, {n_math} with broken math, {n_markup} with markup "
                  f"problems, {n_cut} cut off, "
+                 f"{n_notes} study-notes pages, "
                  f"{counts['no-text-layer']} without a text layer (check those by eye), "
                  f"{counts['no-page-file']} not converted yet.")
     if no_layer:

@@ -5,7 +5,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/miguel-arias-sv/BetterMarkItDown)](https://github.com/miguel-arias-sv/BetterMarkItDown/releases/latest)
 [![Tests](https://github.com/miguel-arias-sv/BetterMarkItDown/actions/workflows/ci.yml/badge.svg)](https://github.com/miguel-arias-sv/BetterMarkItDown/actions/workflows/ci.yml)
-· [What's New](CHANGELOG.md)
+· [What's New](CHANGELOG.md) · [Code signing policy](CODE_SIGNING_POLICY.md) · [Privacy](PRIVACY.md)
 
 [Microsoft's MarkItDown](https://github.com/microsoft/markitdown) is excellent, and it has
 one gap that matters enormously for textbooks, papers and lecture notes: **its PDF path
@@ -84,11 +84,32 @@ Charts become data you can reason about, not just alt text:
 
 ## Install
 
-**From a release (recommended).** One command installs a fixed, tested version and its
+**On Windows, with the installer (easiest).** Download `BetterMarkItDown-Setup-<version>.exe`
+from the [latest release](https://github.com/miguel-arias-sv/BetterMarkItDown/releases/latest)
+and double-click it. No Python, no administrator rights: it installs for you alone, in
+`%LOCALAPPDATA%\Programs\BetterMarkItDown`, with its own copy of Python (it downloads about
+500 MB during setup, so it needs internet then). It adds a Start-menu entry and, if you
+like, a desktop icon, both of which open the setup page; and it can put the
+`bettermarkitdown` command on your PATH, for terminals and AI agents.
+
+- **"Windows protected your PC"?** The installer is not code-signed yet (see the
+  [code signing policy](CODE_SIGNING_POLICY.md): signing by SignPath Foundation is applied
+  for), so Windows SmartScreen does not know it. Click **More info**, then **Run anyway**.
+  Only do that for the file from this project's releases page.
+- **What it sends where:** during setup it downloads Python and its libraries; afterwards
+  nothing leaves your computer unless you convert with an online AI service you chose. The
+  installer shows this before installing; details in [PRIVACY.md](PRIVACY.md).
+- **Uninstall** from Settings > Apps > Installed apps > BetterMarkItDown. It removes the
+  program and its Python, and asks whether to delete your library, settings and saved keys
+  too. Your converted files in `Documents\BetterMarkItDown` are never removed.
+- **Upgrade** by running a newer installer over the old one. If BetterMarkItDown is open,
+  Setup asks to close it first; your library, settings and keys stay.
+
+**With pip, from a release.** One command installs a fixed, tested version and its
 dependencies, including the local OCR fallback:
 
 ```bash
-pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.4.0"
+pip install "bettermarkitdown[ocr] @ git+https://github.com/miguel-arias-sv/BetterMarkItDown@v1.5.0"
 bettermarkitdown --version
 ```
 
@@ -120,24 +141,60 @@ so a `node_modules` folder is not synced. Without Node the check is skipped, nev
 > at all — it raises `MissingDependencyException` on every page. `requirements.txt` pins
 > `markitdown[pdf]` for exactly this reason.
 
-Then add your key. Get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey):
+Then add your key. Get a Gemini key free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey),
+or use [another provider](#providers-and-tiers):
+
+```bash
+bettermarkitdown key set gemini      # paste it at the hidden prompt
+bettermarkitdown key test gemini     # free: lists the models the key can use
+```
+
+The key goes into your computer's own password store (Windows Credential Manager, the macOS
+Keychain, or the Secret Service on Linux), never into a plain file. An environment variable
+or a `.env` file still works and wins over the store, which suits scripts and CI:
 
 ```bash
 cp .env.example .env     # then edit .env and paste your key
 ```
 
-The tool reads, in order: `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`. A real
-environment variable always beats the `.env` file, so you can keep the key in your user
-environment and never have a secret in the repo at all.
-
-`.env` is gitignored. No key is ever written to disk by the tool, printed in full, or
-committed.
+Each provider reads only its own variables (`GEMINI_API_KEY`, `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, ...), so a key is never sent to another company's server.
+`.env` is gitignored. The tool never prints a key in full or commits one.
 
 ---
 
 ## Use it
 
-### Interactive (recommended the first time)
+### The setup page (start here)
+
+```bash
+bettermarkitdown app
+```
+
+A plain page opens in your browser. It runs only on your computer, not on a website. It asks
+who will use the tool (you, an AI agent, or both), how much help you want, and whether you
+have an API key. Then it saves and checks your key, shows you how to get one, or sets up a
+model on your computer. Every option comes with what it is good at and its limits, and
+nothing is installed, downloaded or paid for without a click. Your choices become the
+defaults for every command afterwards. Run it again any time, or open Settings to switch
+provider or model. The installer's Start-menu entry opens this page too.
+
+Once set up, the same page is a **workspace**. Add PDF, Word and PowerPoint files to a
+library on your computer, and each gets a free look first: scanned pages, equations set as
+pictures, figures, chapters, and an estimate of the cost (online service) or time (local
+model). Convert all of it, a chapter, or a few pages to measure, with a spending cap if you
+like, and watch the pages, time left and money spent. A converted file then opens beside
+its review: each page's picture next to its Markdown, with the maths drawn, to check and
+edit, starting with the pages the free check flags. Download the `.md` or a `.zip` with its
+pictures. A conversion expected to take more than two minutes offers a small game while you
+wait; it never starts by itself, and **LlamaGame** in the header opens it any time. The header
+also switches the page between light, dark and your system's colours.
+
+The page's server listens on 127.0.0.1 only and needs the one-time token in the address it
+opens, so other websites and other computers cannot use it. It stops when you press Quit,
+or a while after the tab is closed.
+
+### Interactive, in the terminal
 
 ```bash
 python -m bettermarkitdown
@@ -180,8 +237,51 @@ python -m bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --workers 4 \
     --title "Chapter 3: Simple Regression"
 
 # Against a model on your own machine
-python -m bettermarkitdown book.pdf --base-url http://localhost:11434/v1 --model qwen3-vl:8b
+python -m bettermarkitdown book.pdf --base-url http://localhost:11434/v1 --model qwen3-vl:8b-instruct
 ```
+
+### With an AI agent
+
+Agents such as Claude Code, Codex, Gemini CLI and Antigravity can use the tool on their own,
+and ask you before they spend anything. Give them the skill once:
+
+```bash
+bettermarkitdown agent install     # asks first; for each agent found on this computer
+bettermarkitdown agent status      # which agents have it
+```
+
+The skill is a `SKILL.md` in the open Agent Skills format, the same for every agent: look at
+the file for free, tell you the requests and the cost or time and ask, convert, check the
+result against the PDF, fix pages, report. It never replaces a skill it did not write, and
+`agent uninstall` removes it. The setup page offers the same, one button per agent.
+
+Underneath, it is plain commands with JSON output, which any script can use too:
+
+```bash
+bettermarkitdown setup --json                     # ready to convert? if not, what is missing
+bettermarkitdown setup --provider gemini --key-stdin   # the key comes from standard input, never the command line
+bettermarkitdown inspect book.pdf --json          # pages, scanned pages, figures, estimate: free
+bettermarkitdown book.pdf --pages 40-80 --budget-usd 2 --json
+bettermarkitdown book.pdf --verify --json
+```
+
+With `--json`, standard output carries one JSON object per line (progress events, then a
+summary, or an error) and nothing else. Exit codes: 0 done, 1 error, 2 stopped early
+(spending cap or daily quota), 3 `--verify` flagged pages, 130 interrupted. `--library`
+converts the copy in the setup page's library, so you can review an agent's work in the
+workspace.
+
+**Or as an MCP server**, for agents that prefer tools to a shell: `bettermarkitdown mcp`
+(stdio, nothing extra to install) offers the same steps as tools, with conversions running
+in the background (`convert`, then `job_status` and `stop`). `bettermarkitdown agent mcp`
+prints how to register it with each agent; for Claude Code:
+
+```bash
+claude mcp add --scope user bettermarkitdown -- bettermarkitdown mcp
+```
+
+Tried with Claude Code, both ways (skill and command line, and MCP). Codex, Gemini CLI and
+Antigravity are untested here.
 
 ### As a library
 
@@ -192,6 +292,25 @@ from bettermarkitdown import Options, convert
 result = convert(Options(pdf=Path("book.pdf"), output=Path("book.md"), api_key="..."))
 print(result.pages_converted, result.cost)
 ```
+
+### Word and PowerPoint files
+
+```bash
+python -m bettermarkitdown report.docx           # or slides.pptx, old.doc, lecture.ppt
+python -m bettermarkitdown slides.pptx --as-pages
+```
+
+- **DOCX and PPTX** are read by MarkItDown, which keeps headings, lists and tables. On its
+  own it leaves every picture as an empty placeholder. Here each picture is saved to
+  `<name>_assets/` and described by the vision model where it stood, with a data table for
+  charts. Pictures smaller than 48 px (icons, bullets) are kept but not sent.
+- **DOC and PPT** (Office 97-2003) are opened by Microsoft Word or PowerPoint if installed,
+  else by the free [LibreOffice](https://www.libreoffice.org/download/)
+  (`winget install --id TheDocumentFoundation.LibreOffice -e`). They are saved as DOCX / PPTX
+  in the work folder and read as above.
+- **`--as-pages`** turns any of them into a PDF first and converts it page by page, like a
+  PDF, with page images to compare against. Tables come out flatter, since PDF text has no
+  table structure.
 
 ---
 
@@ -334,6 +453,26 @@ python -m bettermarkitdown book.pdf \
 
 ---
 
+## Tested with
+
+What has actually been run with this tool, and on what. Everything else is built in and
+should work, but is **untested here**: try a few pages first (`--estimate 5`).
+
+| Tried | On | What we found |
+|---|---|---|
+| **Gemini 3.6 Flash** (paid Tier 1) | The [measured runs](#measured-runs) above, and 352 pages of an econometrics textbook read whole | Strong on scans, tables and maths; $1.21 for the 352 pages, in about 10 minutes. Diagram descriptions are the weak spot ([Reviewing the output](#reviewing-the-output)) |
+| **Gemini 3.6 Flash, study notes** | Six textbook pages, run as if refused | No copied wording, every numbered item kept; still about one real slip every few pages ([Refused pages](#refused-pages)) |
+| **Qwen3-VL 4B and 8B**, through Ollama | A Core Ultra 7 laptop, processor only | About 90 s and 130-190 s a page; text and formulas right; 4B reads charts poorly, and both skipped hand-drawn graphs ([Running a local model](#running-a-local-model)) |
+| **Claude Code** as the agent | A small made-up PDF: the skill with the command line, then the MCP server alone | Both ways it loaded the instructions by itself, estimated the cost, converted under a cap, ran the free check, compared the scanned page with its image, and reported ([With an AI agent](#with-an-ai-agent)) |
+| **The Windows installer** | Windows 11, per user | Installed, ran and uninstalled cleanly, PATH restored; the release workflow repeats this on a clean machine |
+
+Untested here: OpenAI, Claude through Anthropic's API, Moonshot Kimi, OpenRouter, other
+local models and servers, and the agents Codex, Gemini CLI and Antigravity. The test suite
+runs on Windows and Linux; macOS and Linux have not been tried by hand, and the installer
+is for Windows only.
+
+---
+
 ## Providers and tiers
 
 **What this was built and measured on: Gemini API, Tier 1** — the paid tier you land on as
@@ -365,28 +504,47 @@ content policy, not a billing tier.
 
 ### Other hosted providers
 
-Any OpenAI-compatible endpoint works:
+Pick one with `--provider`. `bettermarkitdown providers` lists them, with each one's
+default model and whether a key is set:
+
+| `--provider` | Service | Key variable | Default model |
+|---|---|---|---|
+| `gemini` | Google Gemini (free tier available) | `GEMINI_API_KEY` | `gemini-3.6-flash` |
+| `openai` | OpenAI | `OPENAI_API_KEY` | `gpt-5.4-mini` |
+| `anthropic` | Claude, through Anthropic's SDK (`pip install "bettermarkitdown[anthropic]"`) | `ANTHROPIC_API_KEY` | `claude-opus-5-5` |
+| `kimi` | Moonshot Kimi | `MOONSHOT_API_KEY` | none: choose with `--model` |
+| `openrouter` | OpenRouter: one key, many models | `OPENROUTER_API_KEY` | `qwen/qwen3-vl-8b-instruct` |
+| `ollama` | A model on your own computer | none | `qwen3-vl:8b-instruct` |
+| `custom` | Any other OpenAI-compatible server (`--base-url`) | `BMID_API_KEY` | none |
 
 ```bash
-# OpenAI
-python -m bettermarkitdown book.pdf \
-  --base-url https://api.openai.com/v1 --model gpt-5-mini \
-  --price-in 0.25 --price-out 2.00
+bettermarkitdown key set anthropic
+python -m bettermarkitdown book.pdf --provider anthropic --model claude-haiku-5-5
 
-# OpenRouter — one key, many models
-python -m bettermarkitdown book.pdf \
-  --base-url https://openrouter.ai/api/v1 --model qwen/qwen3-vl-8b-instruct
+# OpenRouter: one key, many models
+python -m bettermarkitdown book.pdf --provider openrouter
 ```
 
-Set the key in `OPENAI_API_KEY`, or the endpoint once in `BMID_BASE_URL` and the model in
-`BMID_MODEL`.
+Set a default once with `BMID_PROVIDER` (and `BMID_MODEL`). A ChatGPT, Claude or Gemini
+*subscription* does not include API access; each company bills its API separately.
+
+Notes on individual providers:
+
+- **Claude:** the current models always think a little before answering; `--reasoning none`
+  asks for the lowest effort, which is all transcription needs. On models that support it,
+  a request that a safety check declines is retried on another Claude model within the same
+  call (Anthropic's server-side fallback).
+- **OpenAI:** GPT-5 models refuse `max_tokens` and any temperature but the default. The
+  tool sends what each model accepts, and learns from a refusal so it costs one call at
+  most.
 
 Two things to know when you leave Gemini:
 
-- **The cost meter only knows Gemini's price list.** On any other endpoint it reports
-  **$0.00** rather than inventing a bill. Pass `--price-in` / `--price-out` (USD per 1M
-  tokens) to get real numbers, and note that `--budget-usd` cannot stop a run whose prices
-  it does not know.
+- **The cost meter knows the prices of the models in the table above** (Gemini, OpenAI,
+  Claude; checked on the date recorded in `bettermarkitdown/providers/__init__.py`). For
+  any other model it reports **$0.00** rather than inventing a bill. Pass `--price-in` /
+  `--price-out` (USD per 1M tokens) to get real numbers, and note that `--budget-usd`
+  cannot stop a run whose prices it does not know.
 - **The model must accept images.** `--list-models` prints what your key can reach. On a
   non-Gemini endpoint it lists everything the server offers, because there is no reliable way
   to tell which of those are multimodal — check the provider's docs.
@@ -400,19 +558,57 @@ computer, there is no quota, no per-page cost, and no recitation filter.** What 
 is speed and, on the smaller models, accuracy on exactly the hard parts — dense mathematical
 notation, multi-column layout, small print in figures.
 
-Anything with an OpenAI-compatible server works. [Ollama](https://ollama.com) is the
-shortest path:
+**Which model fits your computer?** Ask it; nothing is downloaded:
 
 ```bash
-ollama pull qwen3-vl:8b
-python -m bettermarkitdown book.pdf \
-  --base-url http://localhost:11434/v1 \
-  --model qwen3-vl:8b \
-  --workers 1 --rpm 0
+bettermarkitdown system          # memory, graphics, disk, and a suggested model with the reason
+bettermarkitdown system --json   # the same, for scripts
 ```
 
-`--workers 1` because a local server usually processes one request at a time anyway, and
-parallel requests just fight over VRAM. `--rpm 0` removes a throttle you no longer need.
+It suggests the largest Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on
+16 GB, 8B on 32 GB or with a graphics card of 8 GB or more, or on a Mac with 16 GB. It warns
+when pages would be read by the processor alone, and lists every size with what it is good
+at and its limits, so you choose. What we measured on a Core Ultra 7 laptop (processor only):
+
+| | Per page | Text, tables, formulas | Textbook chart | Slide with two hand-drawn graphs |
+|---|---|---|---|---|
+| Qwen3-VL 4B | ~90 s | correct | one line | skipped |
+| Qwen3-VL 8B | ~130-190 s | correct | nearly as good as Gemini | skipped |
+
+Local models can leave a diagram out altogether, so check every figure, or use an online
+provider for figure-heavy documents.
+
+**Set it up in one command.** [Ollama](https://ollama.com) runs the model; the tool installs
+it for you (Windows, through winget) and asks before installing or downloading anything:
+
+```bash
+bettermarkitdown local setup        # suggest a model, install Ollama, download, time a test page
+```
+
+Or step by step:
+
+```bash
+bettermarkitdown local install      # Ollama itself
+bettermarkitdown local pull 4b      # 2b, 4b, 8b, or any Ollama tag; shows the size first
+bettermarkitdown local test 4b      # seconds per page on this computer, and a plain verdict
+bettermarkitdown local status       # what is installed and running
+python -m bettermarkitdown book.pdf --provider ollama --model qwen3-vl:4b-instruct
+```
+
+Three things happen without you having to know about them:
+
+- **Pages are not cut short.** Ollama gives every model a 4,096-token context, which a page
+  image plus a dense transcription overflows without any error. The tool converts with a copy
+  of the model that has a 12,288-token context (`bmid-qwen3-vl-4b-instruct`: settings only,
+  no second download).
+- **One page at a time, no throttle.** A local server works on one request at a time anyway,
+  and parallel requests fight over memory, so `--workers 1 --rpm 0` are the defaults for
+  `--provider ollama`.
+- **Ollama is reached at 127.0.0.1**, not localhost, which on Windows tries IPv6 first and
+  loses seconds on every page.
+
+Any other OpenAI-compatible server (LM Studio, llama.cpp, vLLM) works with
+`--provider custom --base-url http://...`. Set its context length yourself.
 
 ### Light models worth downloading
 
@@ -488,11 +684,30 @@ training data. It is deterministic — the same page fails every time — and **
 does not try to defeat it.** No tiling pages into fragments, no rewording the prompt to
 disguise the request.
 
-Instead, those pages go to [RapidOCR](https://github.com/RapidAI/RapidOCR) running locally
-on your own file. Nothing leaves your machine, no provider policy is involved, and OCR is
-the right tool for reading a scan anyway. The trade-off is real and the output says so in
-an HTML comment on every affected page: layout is flattened, and mathematical notation is
-unreliable. Disable with `--no-ocr-fallback`.
+Nor does it transcribe those pages word for word some other way. What a student needs from
+the page is its knowledge, so the tool asks the model for something it does offer: **study
+notes on the page, in the model's own words**. They are checked against the page by a
+second request and revised once if that finds something wrong or missing; the page's
+equation, example, table and figure numbers (read free from its text layer) must each
+appear, and any that do not are listed; any line that shares eight or more words in a row
+with the page is removed. Each such page is labelled "Study notes, not the book's text" and
+names the PDF page to read for the full text. After a revision the notes are checked once
+more, and whatever that check still questions is listed above them, to compare with the
+page. A refused page costs up to four requests. `--no-study-notes` skips this.
+
+Measured on six textbook pages with Gemini 3.6 Flash, run as if refused and compared with a
+reviewed transcription (`scripts/notes_eval.py`): no copied wording, every numbered item and
+every printed figure kept, and the formulas right where checked by hand. But after one
+revision the final check still questioned five statements and five omissions across the six
+pages, and at least one was a real slip (a "parameter" where the book means a "variable").
+The checking request is itself a model and is sometimes wrong too. Treat study notes as
+notes: read the original page when the exact wording or a detail matters.
+
+If the notes fail too, the page goes to [RapidOCR](https://github.com/RapidAI/RapidOCR)
+running locally on your own file. Nothing leaves your machine, and OCR is the right tool for
+reading a scan anyway. The trade-off is real and the output says so in an HTML comment on
+every affected page: layout is flattened, and mathematical notation is unreliable. Disable
+with `--no-ocr-fallback`.
 
 On a 163-page textbook, 4 pages hit this. On a 20-page set of lecture notes, 2 did — and
 those two were a professor's own notes, not a published book, which is a useful reminder
@@ -646,7 +861,7 @@ Conventions that keep a reviewed file honest:
 
 | Mark | Meaning |
 |---|---|
-| `<!-- source: transcribed by hand from the page scan … -->` | Replaces the local-OCR comment on a page you retyped |
+| `<!-- source: study notes … -->` | Written by the tool on a page the model refused: notes in the model's own words, not the book's text. Fix a wrong statement, but do not edit them towards the book's wording, and do not retype a refused page instead |
 | `*[corrected in review: the original said …]*` | The model's description was wrong; record what it claimed |
 | `*[added in review]*` | Something important was missing, e.g. the data behind a chart |
 | `*[sic: …]*` | The **source** has the error; it is transcribed as printed and the note gives the intended reading. Keeps "the transcription is wrong" apart from "the professor made a typo" |
@@ -692,7 +907,8 @@ the same `[^1]` appears several times in a whole-book file. Most renderers then 
 | `--toc` | — | Print the PDF's outline with each chapter's and section's page range, then exit. A range includes the page where the next section starts when that section begins below text |
 | `--title` | the PDF's file name | The output's `#` heading. Pass it on every rebuild, or the file name comes back |
 | `--work-dir` | next to the output | Resume state and response cache. **Point this at a local disk if your output lives in Google Drive / OneDrive / Dropbox** |
-| `--model` | `gemini-3.6-flash` | Also read from `$BMID_MODEL` |
+| `--provider` | `gemini` | `gemini`, `openai`, `anthropic`, `kimi`, `openrouter`, `ollama` or `custom`. Also read from `$BMID_PROVIDER`, then from the setup page's choice |
+| `--model` | the provider's own | Also read from `$BMID_MODEL` |
 | `--base-url` | Gemini | Any OpenAI-compatible endpoint, e.g. `http://localhost:11434/v1`. Also read from `$BMID_BASE_URL` |
 | `--list-models` | — | Print the models your key can reach, then exit |
 | `--reasoning` | `none` | Thinking budget. `none` is ~3× cheaper with no measured quality loss |
@@ -709,6 +925,11 @@ the same `[^1]` appears several times in a whole-book file. Most renderers then 
 | `--price-out` | model's list price | USD per 1M output tokens |
 | `--estimate N` | off | Convert N pages, measure, project the rest |
 | `--no-vision` | off | Text only, zero API calls |
+| `--every-page` | off | Read every page whole with the AI, not only scanned pages and figures: best for maths, which a text layer often garbles. One request per page |
+| `--as-pages` | off | Word / PowerPoint: turn the file into a PDF first and convert it page by page |
+| `--library` | off | Convert the copy in the setup page's library, for review there. Results go to `Documents\BetterMarkItDown`; `-o` and `--work-dir` are ignored |
+| `--json` | off | One JSON object per line on standard output, for scripts and agents. See [With an AI agent](#with-an-ai-agent) |
+| `--no-study-notes` | off | On a refused page, go straight to local OCR instead of asking for [study notes](#refused-pages) |
 | `--no-page-images` | off | Don't save a PNG of each scanned page |
 | `--no-ocr-fallback` | off | Leave refused pages unconverted instead of using local OCR |
 | `--fresh` | off | Redo pages already finished. **Overwrites hand edits in the work dir** — see [Reviewing the output](#reviewing-the-output) |
@@ -756,8 +977,9 @@ Five behaviours here were bought with real mistakes, and the tests lock them in:
 Python 3.10+, and a vision model to talk to — a hosted API key, or a local server.
 
 ```
-markitdown[pdf]  openai  pymupdf  pillow  rich      # requirements.txt
+markitdown[pdf,docx,pptx]  openai  pymupdf  pillow  rich  keyring   # requirements.txt
 rapidocr-onnxruntime   # optional, for the local OCR fallback
+anthropic              # optional, for Claude through Anthropic's SDK
 Node.js + katex        # optional, for the math render check in --verify (package.json)
 ```
 
@@ -765,13 +987,16 @@ Node.js + katex        # optional, for the math render check in --verify (packag
 
 | Variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` / `OPENAI_API_KEY` | API key, tried in that order |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Gemini key |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MOONSHOT_API_KEY`, `OPENROUTER_API_KEY` | That provider's key; each provider reads only its own |
+| `BMID_API_KEY` | Key for a `custom` server (falls back to `OPENAI_API_KEY`) |
+| `BMID_PROVIDER` | Default provider, instead of passing `--provider` |
 | `BMID_BASE_URL` / `OPENAI_BASE_URL` | Default endpoint, instead of passing `--base-url` |
 | `BMID_MODEL` | Default model, instead of passing `--model` |
 | `BMID_KATEX_DIR` | A folder whose `node_modules` holds KaTeX, if it is not in the repo or the global npm root |
 
 All of these can live in `.env` instead. A real environment variable always wins over the
-file.
+file, and both win over a key saved with `bettermarkitdown key set`.
 
 ## Tests
 
@@ -800,7 +1025,8 @@ The version number lives in one place, `__version__` in `bettermarkitdown/__init
 The [release workflow](.github/workflows/release.yml) then checks that the tag matches
 `__version__` and that the changelog has a section for it, builds and tests the wheel, and
 publishes a GitHub Release with the wheel and source archive attached and that version's
-What's New as the notes. A missing changelog section or a mismatched tag stops it before
+What's New as the notes. A second job builds the Windows installer, installs, runs and
+uninstalls it on a clean Windows machine, and attaches it to the same release. A missing changelog section or a mismatched tag stops it before
 anything is published. To rehearse, run the workflow by hand from the Actions tab: it does
 everything except publish.
 

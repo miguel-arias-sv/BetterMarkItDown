@@ -1,0 +1,8 @@
+# Changes to the build, the release workflow and the signing policy need the maintainer's
+# review (SignPath's conditions treat build scripts and CI configuration as source code).
+/.github/            @miguel-arias-sv
+/installer/          @miguel-arias-sv
+/scripts/            @miguel-arias-sv
+/CODE_SIGNING_POLICY.md @miguel-arias-sv
+/PRIVACY.md          @miguel-arias-sv
+/pyproject.toml      @miguel-arias-sv

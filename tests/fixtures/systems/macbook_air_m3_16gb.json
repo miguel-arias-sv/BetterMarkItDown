@@ -1,0 +1,25 @@
+{
+  "os": "Darwin",
+  "os_version": "24.6.0",
+  "arch": "arm64",
+  "ollama": "",
+  "notes": [],
+  "disk_path": "/Users/someone/.ollama/models",
+  "cpu": "Apple M3",
+  "cores": 8,
+  "ram_gb": 16.0,
+  "ram_available_gb": 0.0,
+  "disk_free_gb": 200.0,
+  "gpus": [
+    {
+      "name": "Apple Silicon GPU",
+      "vendor": "Apple",
+      "dedicated_gb": 0.0,
+      "shared_gb": 16.0,
+      "integrated": true,
+      "unified": true,
+      "driver": "",
+      "source": "sysctl"
+    }
+  ]
+}
