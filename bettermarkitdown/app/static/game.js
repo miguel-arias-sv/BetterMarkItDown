@@ -697,8 +697,9 @@ const Game = (() => {
   }
 
   // --- every wait: LlamaCatch, then LlamaRun ----------------------------------------------
-  // LlamaCatch: files fall, and the llama walks (Left, Right) and jumps (Space, Up or a tap)
-  // to catch them; one that lands goes away. Nothing to hit, no way to lose, no Markdown.
+  // LlamaCatch: files fall, faster as they go, and the llama walks (Left, Right) and jumps
+  // (Space, Up or a tap) to catch them; one it misses falls on, off the bottom of the
+  // screen. Nothing to hit, no way to lose, no Markdown.
   // After 15 seconds of waiting the wait becomes a LlamaRun: the obstacle course, started
   // with Space or a tap, with its Markdown files. Waits one straight after another (a file
   // added, then looked through) are one wait: a runner that starts as another ends
@@ -708,7 +709,7 @@ const Game = (() => {
   let runners = 0;
 
   function runner(text) {
-    const RW = 160, RH = 56, FLOOR = 48, WALK = 70;
+    const RW = 160, RH = 56, FLOOR = 48, WALK = 70, FALL = 30;   // FALL: px/s each second
     const say = typeof text === "function" ? text : () => text;
     const id = (runners += 1);
     const c = document.createElement("canvas");
@@ -777,11 +778,11 @@ const Game = (() => {
       if (text !== said) line.textContent = said = text;
       const help = run
         ? "Space or tap: start, then jump. Down arrow: duck. Each signpost: +6 MD. Three tries in a row without one: +3 MD."
-        : "Catch the falling files: Left and Right arrows walk, Space or tap jumps. A file that lands goes away.";
+        : "Catch the falling files: Left and Right arrows walk, Space or tap jumps. A file you miss falls away.";
       if (help !== hinted) hint.textContent = hinted = help;
     };
 
-    // LlamaCatch, one frame: the llama walks and jumps; files fall, and go once they land.
+    // LlamaCatch, one frame: the llama walks and jumps; files fall past the floor and away.
     const catchFiles = (dt, now, still) => {
       const walk = dt ? (me.right ? 1 : 0) - (me.left ? 1 : 0) : 0;
       me.walk = walk;
@@ -798,29 +799,30 @@ const Game = (() => {
         const fx = 8 + Math.random() * (RW - 24);
         // With reduced motion nothing falls: a file waits on the ground for 6 seconds.
         docs.push(still ? { kind, x: fx, y: FLOOR - 9, vy: 0, born: now }
-                        : { kind, x: fx, y: -10, vy: 14 + Math.random() * 10, born: now });
+                        : { kind, x: fx, y: -10, vy: 6 + Math.random() * 6, born: now });
         dropIn = 1.0 + Math.random() * 0.9;
       }
       const body = { x: me.x + 1, y: me.y - 16, w: 13, h: 16 };
       for (const d of docs) {
-        if (d.landed) { d.fade -= dt; continue; }
-        d.y = Math.min(FLOOR - 9, d.y + d.vy * dt);
+        if (!still) {
+          d.vy += FALL * dt;
+          d.y += d.vy * dt;
+        }
         if (dt && hit(body, { x: d.x, y: d.y, w: 7, h: 9 })) {
           d.gone = true;
           collect(d.kind);
           wait.caught += 1;
           pops.push({ x: d.x + 3, y: d.y - 2, t: 0, text: `+1 ${d.kind.label}`, color: d.kind.color });
-        } else if (d.y >= FLOOR - 9 && (!still || now - d.born > 6000)) {
-          d.landed = true;
-          d.fade = 0.6;
+        } else if (still ? now - d.born > 6000 : d.y > RH) {
+          d.gone = true;
           wait.missed += 1;
         }
       }
-      docs = docs.filter((d) => !d.gone && !(d.landed && d.fade <= 0));
+      docs = docs.filter((d) => !d.gone);
       pops = pops.filter((p) => (p.t += dt) < 0.9);
     };
 
-    const drawCatch = (t) => {
+    const drawCatch = (t, now) => {
       x.fillStyle = "#eef3f7";
       x.fillRect(0, 0, RW, RH);
       x.fillStyle = "#d5dfe8";
@@ -830,7 +832,7 @@ const Game = (() => {
       x.fillStyle = "#c7b299";
       for (let sx = 0; sx < RW; sx += 12) x.fillRect(sx, FLOOR + 4, 5, 1);
       for (const d of docs) {
-        x.globalAlpha = d.landed ? Math.max(0, d.fade / 0.6) : 1;
+        x.globalAlpha = d.vy ? 1 : Math.max(0, Math.min(1, (6000 - (now - d.born)) / 600));   // still: fades out
         drawFile(x, d.x, d.y, d.kind.color);
       }
       x.globalAlpha = 1;
@@ -897,7 +899,7 @@ const Game = (() => {
         run.draw(x, t);
       } else {
         catchFiles(dt, now, reduced());
-        drawCatch(t);
+        drawCatch(t, now);
       }
       t.fillStyle = "#3f5670";
       const dots = reduced() ? 3 : 1 + Math.floor(now / 400) % 3;
