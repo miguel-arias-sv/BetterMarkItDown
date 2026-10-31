@@ -16,7 +16,7 @@ from pathlib import Path
 AUDIENCES = ("human", "agent", "both")
 HELP_LEVELS = ("assisted", "automatic")
 THEMES = ("auto", "light", "dark")
-FILE_KINDS = ("pdf", "docx", "xlsx", "pptx")      # what LlamaGame's llama collects
+FILE_KINDS = ("pdf", "docx", "xlsx", "pptx", "md")    # what the llama collects (md: LlamaRun only)
 
 
 @dataclass
@@ -28,12 +28,14 @@ class Settings:
     setup_done: bool = False
     # Seconds per page measured by the speed test, per local model: time estimates.
     speed: dict[str, float] = field(default_factory=dict)
-    offer_game: bool = True   # "Play while you wait" during long conversions
+    offer_game: bool = True   # the llama in every wait, and LlamaGame in long conversions
     theme: str = "auto"       # the setup page's colours: auto (the system's) | light | dark
     # LlamaGame's record, kept here because the browser's storage is new at every launch:
-    # files collected by type (in the game and on loading screens), and the best score.
+    # files collected by type (in the game and in every wait), the best score, and the
+    # longest LlamaRun in metres.
     haul: dict[str, int] = field(default_factory=dict)
     game_best: int = 0
+    run_best: int = 0
 
 
 def config_dir() -> Path:
@@ -87,9 +89,9 @@ def update(**changes) -> Settings:
                 k in FILE_KINDS and isinstance(v, int) and not isinstance(v, bool) and v >= 0
                 for k, v in value.items())):
             raise ValueError(f"haul must count {', '.join(FILE_KINDS)} files")
-        if name == "game_best" and not (isinstance(value, int) and not isinstance(value, bool)
-                                        and value >= 0):
-            raise ValueError("game_best must be a whole number")
+        whole = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        if name in ("game_best", "run_best") and not whole:
+            raise ValueError(f"{name} must be a whole number")
         if name == "provider" and value not in PROVIDERS:
             raise ValueError(f"unknown provider '{value}'")
         if name == "model" and not isinstance(value, str):

@@ -186,9 +186,13 @@ model). Convert all of it, a chapter, or a few pages to measure, with a spending
 like, and watch the pages, time left and money spent. A converted file then opens beside
 its review: each page's picture next to its Markdown, with the maths drawn, to check and
 edit, starting with the pages the free check flags. Download the `.md` or a `.zip` with its
-pictures. A conversion expected to take more than two minutes offers a small game while you
-wait; it never starts by itself, and **LlamaGame** in the header opens it any time. The header
-also switches the page between light, dark and your system's colours.
+pictures. Every wait (adding a file, the free look, a conversion, a download) has a llama
+running beside it that collects files as they drift past; a wait longer than 15 seconds
+becomes a **LlamaRun**, with a folder of files at each 100 m landmark and Markdown files only
+found there. The counts carry from one wait and one launch to the next. A conversion expected
+to take more than two minutes also offers **LlamaGame**, a small game that never starts by
+itself, and the header opens it any time. Settings turns both off. The header also switches
+the page between light, dark and your system's colours.
 
 The page's server listens on 127.0.0.1 only and needs the one-time token in the address it
 opens, so other websites and other computers cannot use it. It stops when you press Quit,

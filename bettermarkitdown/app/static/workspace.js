@@ -165,27 +165,29 @@ screens.library = async () => {
   const input = h("input", { type: "file", id: "files", multiple: true, accept: ACCEPT, hidden: true });
   const addFiles = async (files) => {
     const added = [];
-    for (const file of files) {
-      const kind = "." + file.name.split(".").pop().toLowerCase();
-      const line = h("p", { text: `${file.name}: adding...` });
-      uploads.append(line);
-      if (!(kind in KINDS)) {
-        line.className = "error";
-        line.textContent = `${file.name}: this tool reads PDF, Word and PowerPoint files only.`;
-        continue;
+    await withLlama(uploads, files.length === 1 ? "Adding your file" : "Adding your files", async () => {
+      for (const file of files) {
+        const kind = "." + file.name.split(".").pop().toLowerCase();
+        const line = h("p", { text: `${file.name}: adding...` });
+        uploads.append(line);
+        if (!(kind in KINDS)) {
+          line.className = "error";
+          line.textContent = `${file.name}: this tool reads PDF, Word and PowerPoint files only.`;
+          continue;
+        }
+        const bar = h("progress", { max: 1, value: 0 });
+        line.after(bar);
+        try {
+          const out = await uploadFile(file, (share) => { bar.value = share; });
+          added.push(out.document);
+          line.textContent = `${file.name}: added.`;
+        } catch (err) {
+          line.className = "error";
+          line.textContent = `${file.name}: ${err.message}`;
+        }
+        bar.remove();
       }
-      const bar = h("progress", { max: 1, value: 0 });
-      line.after(bar);
-      try {
-        const out = await uploadFile(file, (share) => { bar.value = share; });
-        added.push(out.document);
-        line.textContent = `${file.name}: added.`;
-      } catch (err) {
-        line.className = "error";
-        line.textContent = `${file.name}: ${err.message}`;
-      }
-      bar.remove();
-    }
+    });
     input.value = "";
     if (added.length === 1 && files.length === 1) { show("doc", added[0].id); return; }
     const fresh = await api("/api/library");
@@ -300,9 +302,13 @@ function runPanel(job, id) {
   });
   const play = h("button", { type: "button", hidden: true }, "Play LlamaGame while you wait");
   play.addEventListener("click", () => { Game.open(); tellGame(Run.job); play.hidden = true; });
+  const llama = waitLlama(() => {
+    const j = Run.job && Run.job.id === job.id ? Run.job : job;
+    return j.total ? `Converting: ${j.done} of ${j.total}` : "Converting";
+  });
   const node = h("div", { class: "run" }, h("h2", { text: "Converting" }), bar, line,
     h("p", { class: "explain", text: "You can leave this page, or close it: the conversion goes on, and finished pages are kept even if it stops." }),
-    h("div", { class: "actions" }, stop, play));
+    h("div", { class: "actions" }, stop, play), llama);
   onRun((j) => {
     if (!node.isConnected) return false;
     if (j.id !== job.id) return undefined;
@@ -310,7 +316,14 @@ function runPanel(job, id) {
     line.textContent = runLine(j);
     play.hidden = !(S.state.settings.offer_game && j.info.eta > 120 && j.status === "running" && !Game.isOpen());
     if (j.status !== "running") {
-      if (j.status === "failed") { line.className = "error"; line.textContent = j.error; stop.hidden = true; play.hidden = true; return false; }
+      if (j.status === "failed") {
+        line.className = "error";
+        line.textContent = j.error;
+        stop.hidden = true;
+        play.hidden = true;
+        if (llama) llama.remove();
+        return false;
+      }
       replace("doc", id);
       return false;
     }
@@ -330,7 +343,7 @@ function inspectingPanel(job, id) {
     // the results. Without the wait, a look that ended at once left the page stuck.
     setTimeout(() => { if (bar.isConnected) replace("doc", id); }, 0);
   }).catch((err) => { line.className = "error"; line.textContent = err.message; });
-  return h("div", {}, bar, line);
+  return h("div", {}, bar, line, waitLlama("Looking through the file"));
 }
 
 // A converted file opens beside its review: the file's details in a narrow column, the
@@ -485,10 +498,10 @@ function convertForm(d, engine, data, running, heading = true) {
     status.className = "";
     status.textContent = "Starting...";
     try {
-      const job = await api("/api/doc/convert", {
+      const job = await withLlama(status, "Starting", () => api("/api/doc/convert", {
         id: d.id, pages: pages ? pages.value.trim() : "", text_only: textOnly.checked,
         as_pages: asPages ? asPages.checked : false, whole_pages: whole ? whole.checked : false,
-        budget_usd: budget ? budget.value.trim() || 0 : 0, ...extra });
+        budget_usd: budget ? budget.value.trim() || 0 : 0, ...extra }));
       watchRun(job);
       replace("doc", d.id);
     } catch (err) {
@@ -657,11 +670,14 @@ async function reviewPanel(d, engine, pageArg) {
                                                   text_only: !engine.ready, whole_pages: d.whole_pages });
       watchRun(job);
       const forPage = page;
+      const llama = waitLlama(`Transcribing page ${forPage}`);
+      if (llama) notes.before(llama);
       onRun((j) => {
         if (!again.isConnected) return false;
         if (j.id !== job.id) return undefined;
         setState(runLine(j));
         if (j.status === "running") return undefined;
+        if (llama) llama.remove();
         again.disabled = false;
         if (j.status === "failed") setState(j.error, "error");
         else if (page === forPage) load(forPage, true);

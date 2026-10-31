@@ -384,8 +384,10 @@ select.to-check { width: auto; padding: 8px 10px; }
 .game.popped .game-tools button:not(:last-child) { display: none; }
 body.game-pip { margin: 0; background: var(--card); }
 
-/* The llama running while a screen loads. */
+/* The llama running in every wait: while a screen loads, a file is added, read or converted. */
 div.loading { text-align: center; padding-top: 8px; }
+.runner-box { text-align: center; margin: 12px 0 4px; }
+.run-line { margin: 0; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
 .loading-note { min-height: 1.5em; margin: 0 0 8px; color: var(--muted); }
 .runner {
   display: block;
@@ -407,6 +409,7 @@ div.loading { text-align: center; padding-top: 8px; }
 .chip.docx { --chip: #2563c9; }
 .chip.xlsx { --chip: #1e7d44; }
 .chip.pptx { --chip: #c4561a; }
+.chip.md { --chip: #5b34a3; }
 
 h3 { font-size: 1rem; margin: 16px 0 4px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }

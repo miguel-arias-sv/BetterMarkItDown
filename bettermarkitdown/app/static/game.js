@@ -91,35 +91,42 @@ const Game = (() => {
   const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // --- the record: files collected and the best score, in every form of the game ------------
-  // The llama collects files in four colours, in LlamaGame and on loading screens alike.
-  // The record lives in the settings (app.js keeps it), so it carries from one launch to
-  // the next: the browser's own storage is new at every launch, since the port is.
+  // The llama collects files in four colours, in LlamaGame and in every wait alike, and
+  // Markdown files on a LlamaRun only. The record lives in the settings (app.js keeps it),
+  // so it carries from one launch to the next: the browser's own storage is new at every
+  // launch, since the port is.
   const FILE_KINDS = [
     { id: "pdf", label: "PDF", color: "#d93a2b" },
     { id: "docx", label: "DOCX", color: "#2b6cd9" },
     { id: "xlsx", label: "XLSX", color: "#1f8f4a" },
     { id: "pptx", label: "PPTX", color: "#e8772e" },
   ];
+  const MD = { id: "md", label: "MD", color: "#6f42c1" };
+  const ALL_KINDS = [...FILE_KINDS, MD];
   const haul = {};
   let bestEver = 0;
+  let runBest = 0;                               // the longest LlamaRun, in metres
   const shown = new Set();                       // tally lines on the page, kept current
 
   // From the saved settings. The larger count wins: a file collected a moment ago may not
   // have reached the settings yet when the page reads them again.
   function setRecord(settings) {
-    for (const k of FILE_KINDS) haul[k.id] = Math.max(haul[k.id] || 0, (settings.haul || {})[k.id] || 0);
+    for (const k of ALL_KINDS) haul[k.id] = Math.max(haul[k.id] || 0, (settings.haul || {})[k.id] || 0);
     bestEver = Math.max(bestEver, settings.game_best || 0);
+    runBest = Math.max(runBest, settings.run_best || 0);
     refreshTallies();
   }
 
-  function collect(kind) {
-    haul[kind.id] = (haul[kind.id] || 0) + 1;
+  function collect(kind, count = 1) {
+    haul[kind.id] = (haul[kind.id] || 0) + count;
     keepRecord();
     refreshTallies();
   }
 
   function keepRecord() {
-    if (typeof keepGameRecord === "function") keepGameRecord({ haul: { ...haul }, game_best: bestEver });
+    if (typeof keepGameRecord === "function") {
+      keepGameRecord({ haul: { ...haul }, game_best: bestEver, run_best: runBest });
+    }
   }
 
   function refreshTallies() {
@@ -139,16 +146,15 @@ const Game = (() => {
 
   function showHaul(node) {
     if (node.isConnected) node.dataset.seen = "1";
-    const total = FILE_KINDS.reduce((n, k) => n + (haul[k.id] || 0), 0);
-    const types = FILE_KINDS.filter((k) => haul[k.id]).length;
+    const total = ALL_KINDS.reduce((n, k) => n + (haul[k.id] || 0), 0);
+    const types = ALL_KINDS.filter((k) => haul[k.id]).length;
     const lead = document.createElement("span");
-    lead.textContent = total
-      ? `Collected so far: ${total} file${total === 1 ? "" : "s"} from ${types} type${types === 1 ? "" : "s"}`
-      : "Collect the files:";
-    node.replaceChildren(lead, ...FILE_KINDS.map((k) => {
+    lead.textContent = `Collected so far: ${total} file${total === 1 ? "" : "s"} from ${types} of ${ALL_KINDS.length} types`;
+    node.replaceChildren(lead, ...ALL_KINDS.map((k) => {
       const chip = document.createElement("span");
       chip.className = `chip ${k.id}`;
-      chip.textContent = total ? `${k.label} ${haul[k.id] || 0}` : k.label;
+      chip.textContent = `${k.label} ${haul[k.id] || 0}`;
+      if (k === MD) chip.title = "Markdown files are found on a LlamaRun only";
       return chip;
     }));
   }
@@ -431,11 +437,20 @@ const Game = (() => {
     raf = win.requestAnimationFrame(tick);
   }
 
-  // --- while a screen loads: the llama with nothing in its way, and files to collect -------
+  // --- every wait: the llama with nothing in its way, and files to collect -----------------
   // Left and Right walk, Space, Up or a tap jumps, Down ducks. Files drift past in four
   // colours, added to the same record as LlamaGame's, so each wait carries on from the
-  // last. Nothing to hit and no way to lose. It stops by itself once the screen takes its
-  // place.
+  // last. Nothing to hit and no way to lose. It stops by itself once the wait is over.
+  //
+  // A wait that goes on becomes a LlamaRun: the metres count, and at every landmark (each
+  // 100 m) a signpost comes with a folder of files, a bigger one each time. Markdown files
+  // are found on a LlamaRun only. Waits one straight after another (a file added, then
+  // looked through) are one wait: a runner that starts as another ends carries on from it.
+  const RUN_AFTER = 15;                              // seconds of waiting before a LlamaRun
+  const MARK_EVERY = 100;                            // metres between landmarks
+  let wait = null;                                   // the wait in progress, shared
+  let runners = 0;
+
   function drawFile(x, px, py, color) {
     px = Math.round(px);
     py = Math.round(py);
@@ -447,34 +462,64 @@ const Game = (() => {
     x.fillRect(px + 1, py + 6, 4, 1);
   }
 
+  // A landmark's folder: its files' colour on the tab, and how many it holds.
+  function drawFolder(x, px, py, color, count) {
+    px = Math.round(px);
+    py = Math.round(py);
+    x.fillStyle = color;
+    x.fillRect(px, py, 5, 2);
+    x.fillStyle = "#d9b36c";
+    x.fillRect(px, py + 2, 13, 9);
+    x.fillStyle = "#4a3020";
+    x.font = "bold 7px system-ui, sans-serif";
+    x.textAlign = "center";
+    x.fillText(String(count), px + 6.5, py + 9.5);
+  }
+
+  function drawPost(x, px, label) {
+    px = Math.round(px);
+    x.fillStyle = "#8a6f55";
+    x.fillRect(px + 9, 30, 2, 19);
+    x.fillRect(px, 24, 20, 8);
+    x.fillStyle = "#ffffff";
+    x.font = "6px system-ui, sans-serif";
+    x.textAlign = "center";
+    x.fillText(label, px + 10, 30);
+  }
+
   function runner(text) {
-    const RW = 160, RH = 56, FLOOR = 48, PACE = 40, WALK = 70;
+    const RW = 160, RH = 56, FLOOR = 48, PACE = 40, RUN_PACE = 50, WALK = 70, PX_PER_M = 10;
+    const say = typeof text === "function" ? text : () => text;
+    const id = (runners += 1);
     const c = document.createElement("canvas");
     c.className = "runner";
     c.width = RW;
     c.height = RH;
     c.tabIndex = 0;
-    c.setAttribute("aria-label", `${text}. Left and Right arrows: walk. Space: jump. Down arrow: duck.`);
+    c.setAttribute("aria-label", `${say()}. Left and Right arrows: walk. Space: jump. Down arrow: duck.`);
     const x = c.getContext("2d");
     x.imageSmoothingEnabled = false;
+    const line = document.createElement("p");
+    line.className = "run-line";
     const counter = tally();
     const hint = document.createElement("p");
     hint.className = "explain";
     hint.textContent = "Left and Right arrows: walk. Space or tap: jump. Down arrow: duck.";
-    const box = document.createElement("div");
-    box.className = "runner-box";
-    box.append(c, counter, hint);
+    const wrap = document.createElement("div");
+    wrap.className = "runner-box";
+    wrap.append(c, line, counter, hint);
 
     const me = { x: 22, y: FLOOR, vy: 0, ducking: false, left: false, right: false, facing: 1 };
-    let files = [], pops = [], spawnIn = 0.3, travelled = 0, stride = 0;
-    let last = 0, seen = false, frames = 0;
+    let files = [], posts = [], pops = [], spawnIn = 0.3, travelled = 0, stride = 0, flash = 0;
+    let last = 0, seen = false, frames = 0, said = "";
+    const gameOpen = () => Boolean(box && box.isConnected);   // LlamaGame on top: the llama waits
     const jump = () => { if (me.y >= FLOOR) { me.vy = -130; me.ducking = false; } };
     const keys = {
       jump: [" ", "ArrowUp", "w", "W"], duck: ["ArrowDown", "s", "S"],
       left: ["ArrowLeft", "a", "A"], right: ["ArrowRight", "d", "D"],
     };
     const onKey = (ev) => {
-      if (ev.target !== c && ev.target !== document.body) return;
+      if ((ev.target !== c && ev.target !== document.body) || gameOpen()) return;
       if (keys.jump.includes(ev.key)) { ev.preventDefault(); jump(); }
       else if (keys.duck.includes(ev.key)) { ev.preventDefault(); me.ducking = me.y >= FLOOR; }
       else if (keys.left.includes(ev.key)) { ev.preventDefault(); me.left = true; }
@@ -485,9 +530,26 @@ const Game = (() => {
       if (keys.left.includes(ev.key)) me.left = false;
       if (keys.right.includes(ev.key)) me.right = false;
     };
-    c.addEventListener("pointerdown", (ev) => { ev.preventDefault(); jump(); });
+    c.addEventListener("pointerdown", (ev) => { ev.preventDefault(); c.focus({ preventScroll: true }); jump(); });
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
+
+    // The longest run is saved at each landmark and when the wait ends, not every metre.
+    const noteRun = () => {
+      const metres = Math.floor(wait.metres);
+      if (metres > runBest) { runBest = metres; keepRecord(); }
+    };
+    const s = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    const tell = () => {
+      const run = wait.waited >= RUN_AFTER;
+      const metres = Math.floor(wait.metres);
+      const text = run
+        ? `LlamaRun: ${metres} m · ${s(wait.marks, "landmark")} · next at ${wait.next} m · ` +
+          `this wait: ${s(wait.caught, "file")} · longest run: ${Math.max(runBest, metres)} m`
+        : `This wait: ${s(wait.caught, "file")} · LlamaRun in ${Math.ceil(RUN_AFTER - wait.waited)} s` +
+          (runBest ? ` · longest run: ${runBest} m` : "");
+      if (text !== said) line.textContent = said = text;
+    };
 
     const tick = (now) => {
       frames += 1;
@@ -496,47 +558,84 @@ const Game = (() => {
         if (seen || frames > 120) {
           window.removeEventListener("keydown", onKey);
           window.removeEventListener("keyup", onKeyUp);
+          if (seen && wait.owner === id) { wait.ended = now; noteRun(); }
           return;
         }
         requestAnimationFrame(tick);
         return;
       }
-      seen = true;
-      const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
+      if (!c.getClientRects().length) {                // hidden: the wait is not counted
+        last = 0;
+        requestAnimationFrame(tick);
+        return;
+      }
+      if (!seen) {
+        seen = true;
+        // Straight after another wait (within 3 seconds): the same wait, the same run.
+        if (!wait || (wait.ended && now - wait.ended > 3000)) {
+          wait = { waited: 0, metres: 0, caught: 0, marks: 0, next: MARK_EVERY, x: 22 };
+        }
+        wait.owner = id;
+        wait.ended = 0;
+        me.x = wait.x;
+      }
+      const paused = gameOpen() || wait.owner !== id;
+      const dt = last && !paused ? Math.min(0.05, (now - last) / 1000) : 0;
       last = now;
+      const wasRun = wait.waited >= RUN_AFTER;
+      wait.waited += dt;
+      const run = wait.waited >= RUN_AFTER;
+      if (run && !wasRun) flash = 2;
+      flash = Math.max(0, flash - dt);
       const still = reduced();                           // nothing drifts; the llama still walks
-      const pace = still ? 0 : PACE;
-      const walk = (me.right ? 1 : 0) - (me.left ? 1 : 0);
+      const pace = still || paused ? 0 : run ? RUN_PACE : PACE;
+      const walk = paused ? 0 : (me.right ? 1 : 0) - (me.left ? 1 : 0);
       if (walk) me.facing = walk;
       me.x = Math.max(2, Math.min(RW - 18, me.x + walk * WALK * dt));
+      wait.x = me.x;
       travelled += pace * dt;
       stride += (pace + Math.abs(walk) * WALK) * dt;
+      if (run) wait.metres += (RUN_PACE * dt) / PX_PER_M;
       me.vy += 420 * dt;
       me.y = Math.min(FLOOR, me.y + me.vy * dt);
       if (me.y >= FLOOR) me.vy = 0;
       if (me.y < FLOOR) me.ducking = false;
 
-      // Files: some on the ground, some only reached by jumping.
+      // Files: some on the ground, some only reached by jumping; on a LlamaRun, Markdown too.
       spawnIn -= dt;
       if (spawnIn <= 0 && files.length < 4) {
-        const kind = FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)];
+        const kind = run && Math.random() < 0.2 ? MD : FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)];
         const high = Math.random() < 0.45;
-        files.push({ kind, born: now,
+        files.push({ kind, count: 1, born: now, w: 7, h: 9,
                      x: still ? 20 + Math.random() * (RW - 40) : RW + 2,
                      y: high ? FLOOR - 32 + Math.round(Math.random() * 4) : FLOOR - 10 - Math.round(Math.random() * 3) });
         spawnIn = 0.7 + Math.random() * 0.9;
       }
+      // A landmark: its signpost, then a folder of files on the ground, more at each one.
+      if (run && wait.metres >= wait.next) {
+        wait.marks += 1;
+        const kind = Math.random() < 0.35 ? MD : FILE_KINDS[Math.floor(Math.random() * FILE_KINDS.length)];
+        posts.push({ label: `${wait.next} m`, x: still ? RW / 2 - 30 : RW + 2, born: now });
+        files.push({ kind, count: Math.min(12, 2 + wait.marks), born: now, w: 13, h: 11,
+                     x: still ? RW / 2 : RW + 26, y: FLOOR - 10 });
+        wait.next += MARK_EVERY;
+        noteRun();
+      }
       const body = me.ducking ? { x: me.x, y: me.y - 9, w: 18, h: 9 } : { x: me.x + 1, y: me.y - 16, w: 13, h: 16 };
       for (const f of files) {
         f.x -= pace * dt;
-        if (body.x < f.x + 7 && body.x + body.w > f.x && body.y < f.y + 9 && body.y + body.h > f.y) {
+        if (!paused && body.x < f.x + f.w && body.x + body.w > f.x && body.y < f.y + f.h && body.y + body.h > f.y) {
           f.gone = true;
-          collect(f.kind);
-          pops.push({ x: f.x, y: f.y, t: 0, text: `+1 ${f.kind.label}`, color: f.kind.color });
+          collect(f.kind, f.count);
+          wait.caught += f.count;
+          pops.push({ x: f.x, y: f.y, t: 0, text: `+${f.count} ${f.kind.label}`, color: f.kind.color });
         }
       }
-      files = files.filter((f) => !f.gone && f.x > -8 && (!still || now - f.born < 6000));
-      pops = pops.filter((p) => (p.t += dt) < 0.7);
+      for (const p of posts) p.x -= pace * dt;
+      const fresh = (o) => !still || now - o.born < 6000;
+      files = files.filter((f) => !f.gone && f.x > -14 && fresh(f));
+      posts = posts.filter((p) => p.x > -22 && fresh(p));
+      pops = pops.filter((p) => (p.t += dt) < 0.9);
 
       x.fillStyle = "#eef3f7";
       x.fillRect(0, 0, RW, RH);
@@ -547,12 +646,23 @@ const Game = (() => {
       x.font = "9px system-ui, sans-serif";
       x.textAlign = "center";
       const dots = still ? 3 : 1 + Math.floor(now / 400) % 3;
-      x.fillText(text.replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 10);
+      x.fillText(say().replace(/[.…]+$/, "") + ".".repeat(dots), RW / 2 + 12, 10);
+      if (run) {
+        x.font = "7px system-ui, sans-serif";
+        x.textAlign = "left";
+        x.fillText(`LlamaRun ${Math.floor(wait.metres)} m`, 3, 20);
+        x.textAlign = "right";
+        x.fillText(`next ${wait.next} m`, RW - 3, 20);
+      }
       x.fillStyle = "#8a6f55";
       x.fillRect(0, FLOOR + 1, RW, 1);
       x.fillStyle = "#c7b299";
       for (let sx = -(travelled % 12); sx < RW; sx += 12) x.fillRect(sx, FLOOR + 4, 5, 1);
-      for (const f of files) drawFile(x, f.x, f.y, f.kind.color);
+      for (const p of posts) drawPost(x, p.x, p.label);
+      for (const f of files) {
+        if (f.count > 1) drawFolder(x, f.x, f.y - 1, f.kind.color, f.count);
+        else drawFile(x, f.x, f.y, f.kind.color);
+      }
 
       const moving = pace || walk;
       const pose = me.ducking ? "duck" : me.y < FLOOR || !moving ? "run1"
@@ -568,14 +678,24 @@ const Game = (() => {
         x.drawImage(img, Math.round(me.x), top);
       }
       x.font = "7px system-ui, sans-serif";
+      x.textAlign = "center";
       for (const p of pops) {
         x.fillStyle = p.color;
         x.fillText(p.text, Math.round(p.x + 3), Math.round(p.y - 2 - p.t * 14));
       }
+      const banner = gameOpen() ? "Paused while LlamaGame is open" : flash ? "LlamaRun! Folders of files ahead" : "";
+      if (banner) {
+        x.fillStyle = "rgba(20, 30, 45, 0.78)";
+        x.fillRect(0, 22, RW, 13);
+        x.fillStyle = "#ffffff";
+        x.font = "7px system-ui, sans-serif";
+        x.fillText(banner, RW / 2, 31);
+      }
+      tell();
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-    return box;
+    return wrap;
   }
 
   // --- what the page tells it ---------------------------------------------------------------

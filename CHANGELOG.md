@@ -11,6 +11,22 @@ fixes bugs, a **minor** (1.**2**.0) adds features without breaking anything, and
      ## [X.Y.Z] - YYYY-MM-DD
      The release workflow refuses to publish a version that has no section here. -->
 
+## [Unreleased]
+
+### What's New
+
+- **The llama in every wait.** Adding a file, the free look through it, starting and running
+  a conversion, transcribing a page again, checking a key and the setup's downloads now have
+  the llama running beside them, collecting files: before, it ran only while a slow screen
+  opened. Waits one straight after another count as one.
+- **LlamaRun.** A wait longer than 15 seconds becomes a run: the metres count, and at each
+  100 m landmark a signpost comes with a folder of files, a bigger one each time. Markdown
+  (MD) files are found on a LlamaRun only. The longest run is kept with the other records.
+- **Every count on screen.** Under the llama: this wait's files, the metres, landmarks, the
+  next landmark and the longest run, and the files collected so far for each of the five
+  types, zeros included.
+- The "While you wait" setting turns the llama off along with LlamaGame.
+
 ## [1.5.0] - 2026-10-31
 
 No Python knowledge needed any more: a Windows installer, a setup page and workspace in the
