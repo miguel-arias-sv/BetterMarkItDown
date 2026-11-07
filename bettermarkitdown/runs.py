@@ -180,7 +180,7 @@ def summary(result, p: Plan, progress: Progress, *, aborted: bool, whole_pages: 
             trial: bool) -> dict:
     """What a finished run did, as the page and agents report it."""
     reason = result.stopped_reason
-    if aborted and reason not in ("budget", "DailyQuotaExceeded"):
+    if aborted and reason not in ("budget", "DailyQuotaExceeded", "memory"):
         reason = "stopped"                     # a Stop button or an agent's stop
     return {
         "when": time.strftime("%Y-%m-%d %H:%M"), "provider": p.provider.id,

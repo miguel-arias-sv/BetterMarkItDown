@@ -40,6 +40,9 @@ def isolated_keys(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("BMID_OUTPUT_DIR", str(tmp_path_factory.mktemp("documents")))
     # Agents' skill folders (~/.claude/skills, ~/.agents/skills...): a temporary home.
     monkeypatch.setenv("BMID_HOME", str(tmp_path_factory.mktemp("home")))
+    # The same results on an 8 GB Mac as on CI: test_guard.py turns the limits back on.
+    from bettermarkitdown.system import macos
+    monkeypatch.setattr(macos, "SMALL_UNIFIED_GB", 0)
     names = {name for spec in PROVIDERS.values() for name in spec.key_env}
     for name in names | {"BMID_PROVIDER", "BMID_BASE_URL", "OPENAI_BASE_URL", "BMID_MODEL"}:
         monkeypatch.delenv(name, raising=False)

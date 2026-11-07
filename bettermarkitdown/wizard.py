@@ -281,6 +281,9 @@ def _run(opts: Options) -> int:
     if result.stopped_reason == "budget":
         console.print("[yellow]Spending cap reached.[/] Rerun with a higher cap to continue; "
                       "finished pages are cached and will not be paid for twice.")
+    if result.stopped_reason == "memory":
+        from .local.guard import STOPPED_MESSAGE
+        console.print(f"[yellow]{STOPPED_MESSAGE}[/]")
     if result.failed:
         console.print("[yellow]Some pages produced no transcription.[/] They are left out of "
                       "the file so a rerun retries them.")

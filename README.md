@@ -570,7 +570,8 @@ bettermarkitdown system --json   # the same, for scripts
 ```
 
 It suggests the largest Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on
-16 GB, 8B on 32 GB or with a graphics card of 8 GB or more, or on a Mac with 16 GB. It warns
+16 GB, 8B on 32 GB or with a graphics card of 8 GB or more, or on a Mac with 16 GB. An 8 GB
+Mac gets 2B: 4B froze an 8 GB M1 until it was forced off. It warns
 when pages would be read by the processor alone, and lists every size with what it is good
 at and its limits, so you choose. What we measured on a Core Ultra 7 laptop (processor only):
 
@@ -581,6 +582,13 @@ at and its limits, so you choose. What we measured on a Core Ultra 7 laptop (pro
 
 Local models can leave a diagram out altogether, so check every figure, or use an online
 provider for figure-heavy documents.
+
+**On a Mac with less than 16 GB** a local model shares memory with macOS and every open
+app, so the tool contains it. It uses a smaller context, and it will not load a model that
+is too big for the Mac or when too little memory is free right now. If memory runs out during
+a run, it stops, keeps the finished pages and closes the model. The model leaves memory
+as soon as the run ends. A page dense enough to need the larger retry may be flagged as cut
+short. Other computers are unaffected.
 
 **Set it up in one command.** [Ollama](https://ollama.com) runs the model; the tool installs
 it for you (Windows, through winget) and asks before installing or downloading anything:

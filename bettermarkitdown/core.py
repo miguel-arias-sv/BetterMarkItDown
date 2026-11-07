@@ -29,6 +29,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 from urllib.parse import quote
 
@@ -560,6 +561,15 @@ def assemble_output(output: Path, pages_dir: Path, *, title: str, source_name: s
     tmp.replace(output)
 
 
+def local_limits(opts: Options, abort: threading.Event):
+    """A context for the part of a run that uses a local model, which on a small Mac
+    keeps it within the computer's memory; see local/guard.py."""
+    if opts.provider != "ollama" or opts.no_vision:
+        return nullcontext()
+    from .local import guard
+    return guard.contained(opts.model, on_stop=abort.set)
+
+
 def convert(opts: Options, on_event: Event | None = None,
             abort: threading.Event | None = None) -> Result:
     """Convert a PDF to Markdown. `on_event(name, payload)` reports progress. Setting
@@ -660,8 +670,11 @@ def convert(opts: Options, on_event: Event | None = None,
              cost=meter.cost())
 
     if todo:
-        with ThreadPoolExecutor(max_workers=max(1, opts.workers)) as pool:
+        with (local_limits(opts, abort) as watch,
+              ThreadPoolExecutor(max_workers=max(1, opts.workers)) as pool):
             list(pool.map(run, todo))
+        if watch and watch.tripped:
+            result.stopped_reason = "memory"
 
     assemble()
 

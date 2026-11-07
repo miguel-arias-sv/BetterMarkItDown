@@ -13,6 +13,7 @@ class FakeOllama:
 
     def __init__(self, models=()):
         self.models = list(models)
+        self.contexts: dict[str, int] = {}
         self.calls: list[tuple[str, str, dict | None]] = []
 
     def request(self, method, path, body=None, timeout=10.0):
@@ -22,8 +23,13 @@ class FakeOllama:
         if path == "/api/tags":
             return {"models": [{"name": m} for m in self.models]}
         if path == "/api/create":
-            self.models.append(body["model"] + ":latest")
+            if body["model"] + ":latest" not in self.models:
+                self.models.append(body["model"] + ":latest")
+            self.contexts[body["model"]] = body["parameters"]["num_ctx"]
             return {"status": "success"}
+        if path == "/api/show":
+            size = self.contexts.get(body["model"])
+            return {"parameters": f"temperature 0.1\nnum_ctx {size}" if size else ""}
         if path == "/api/ps":
             return {"models": [{"name": "bmid-qwen3-vl-4b-instruct:latest",
                                 "size": 6_000_000_000, "size_vram": 1_500_000_000}]}
@@ -77,6 +83,39 @@ def test_the_default_context_is_replaced_by_a_copy_with_room_for_a_page(server):
     server.calls.clear()
     assert ollama.with_context("qwen3-vl:4b-instruct") == name     # made once, then reused
     assert not any(path == "/api/create" for _, path, _ in server.calls)
+
+
+def test_a_small_mac_gets_a_smaller_context(server, monkeypatch):
+    monkeypatch.setattr(ollama.macos, "small_unified", lambda: True)
+    server.models = ["qwen3-vl:2b-instruct"]
+    ollama.with_context("qwen3-vl:2b-instruct")
+    assert server.contexts == {"bmid-qwen3-vl-2b-instruct": ollama.SMALL_MAC_CONTEXT}
+
+
+def test_a_copy_made_with_another_context_is_remade(server, monkeypatch):
+    monkeypatch.setattr(ollama.macos, "small_unified", lambda: True)
+    server.models = ["qwen3-vl:2b-instruct", "bmid-qwen3-vl-2b-instruct:latest"]
+    server.contexts = {"bmid-qwen3-vl-2b-instruct": ollama.LOCAL_CONTEXT}
+    assert ollama.with_context("qwen3-vl:2b-instruct") == "bmid-qwen3-vl-2b-instruct"
+    assert server.contexts["bmid-qwen3-vl-2b-instruct"] == ollama.SMALL_MAC_CONTEXT
+    assert [body["from"] for _, path, body in server.calls if path == "/api/create"] == [
+        "qwen3-vl:2b-instruct"]
+
+
+def test_a_copy_named_directly_is_resized_too(server, monkeypatch):
+    monkeypatch.setattr(ollama.macos, "small_unified", lambda: True)
+    server.models = ["bmid-qwen3-vl-2b-instruct:latest"]
+    server.contexts = {"bmid-qwen3-vl-2b-instruct": ollama.LOCAL_CONTEXT}
+    assert ollama.with_context("bmid-qwen3-vl-2b-instruct") == "bmid-qwen3-vl-2b-instruct"
+    assert server.contexts["bmid-qwen3-vl-2b-instruct"] == ollama.SMALL_MAC_CONTEXT
+
+
+def test_unload_only_asks_for_a_model_that_is_loaded(server):
+    ollama.unload("bmid-qwen3-vl-2b-instruct")            # the fake has only 4B loaded
+    assert not any(path == "/api/generate" for _, path, _ in server.calls)
+    ollama.unload("bmid-qwen3-vl-4b-instruct")
+    assert ("POST", "/api/generate",
+            {"model": "bmid-qwen3-vl-4b-instruct", "keep_alive": 0}) in server.calls
 
 
 def test_with_context_leaves_unknown_or_missing_models_alone(server, monkeypatch):

@@ -663,7 +663,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         return say.fail(f"Failed: {exc}")
 
-    code = 2 if result.stopped_reason in ("budget", "DailyQuotaExceeded") else 0
+    code = 2 if result.stopped_reason in ("budget", "DailyQuotaExceeded", "memory") else 0
     if doc is not None:
         _record_in_library(doc.id, result, opts, provider, chosen_model, through_pdf,
                            args.every_page)
@@ -731,6 +731,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if result.stopped_reason == "DailyQuotaExceeded":
         print("\n!! Stopped early: this key hit its per-day quota for this model.")
+        return 2
+    if result.stopped_reason == "memory":
+        from .local.guard import STOPPED_MESSAGE
+        print(f"\n!! Stopped early: {STOPPED_MESSAGE}")
         return 2
     return 0
 

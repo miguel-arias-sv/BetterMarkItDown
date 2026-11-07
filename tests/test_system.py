@@ -36,6 +36,8 @@ def machine(name: str) -> SystemProfile:
     # laptop) but described a chart that 4B gave one line, so 8B is still suggested.
     ("laptop_core_ultra_32gb_arc_igpu", "qwen3-vl:8b-instruct", "processor"),
     ("macbook_air_m3_16gb", "qwen3-vl:8b-instruct", "shared memory"),
+    # 4B froze an 8 GB M1 until it was forced off, so it does not fit there.
+    ("macbook_air_m1_8gb", "qwen3-vl:2b-instruct", "shared memory"),
 ])
 def test_each_kind_of_machine_gets_a_sensible_model(name, tag, runs_on):
     rec = recommend(machine(name))
@@ -43,6 +45,11 @@ def test_each_kind_of_machine_gets_a_sensible_model(name, tag, runs_on):
     assert rec.runs_on == runs_on
     assert rec.reasons, "every suggestion says why"
     assert [o.model for o in rec.options] == list(CATALOG), "every option is shown"
+
+
+def test_an_8_gb_mac_is_not_offered_the_4b_model():
+    rec = recommend(machine("macbook_air_m1_8gb"))
+    assert [o.model.tag for o in rec.options if o.fits] == ["qwen3-vl:2b-instruct"]
 
 
 def test_too_little_memory_points_to_an_online_provider():

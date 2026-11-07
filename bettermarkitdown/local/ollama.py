@@ -12,8 +12,10 @@ pages short. `with_context()` makes a copy of the model with a larger context
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,11 +26,16 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..system import macos
+
 DOWNLOAD_URL = "https://ollama.com/download"
 WINGET_ID = "Ollama.Ollama"
 # Image (~2k) + prompt (~0.6k) + a dense page (~4k), with room for the larger
 # retry. Each extra 1k tokens costs roughly 100-150 MB of memory on these models.
 LOCAL_CONTEXT = 12288
+# On a small Mac: the same page and first attempt, without the room for the larger retry,
+# so a very dense page may be flagged as cut short. Saves roughly 0.4-0.6 GB.
+SMALL_MAC_CONTEXT = 8192
 PREFIX = "bmid-"
 
 
@@ -195,24 +202,67 @@ def local_name(tag: str) -> str:
     return PREFIX + tag.replace(":", "-").replace("/", "-")
 
 
-def with_context(tag: str, num_ctx: int = LOCAL_CONTEXT) -> str:
-    """The name to convert with: a copy of `tag` with a context large enough for a
-    page, made on first use. Returns `tag` unchanged if the copy cannot be made."""
-    if tag.startswith(PREFIX):
-        return tag
-    name = local_name(tag)
+def context_size() -> int:
+    return SMALL_MAC_CONTEXT if macos.small_unified() else LOCAL_CONTEXT
+
+
+def context_of(name: str) -> int | None:
+    """The context a model's copy was made with, or None if it does not say."""
+    try:
+        parameters = _request("POST", "/api/show", {"model": name}).get("parameters", "")
+    except OllamaError:
+        return None
+    found = re.search(r"^num_ctx\s+(\d+)", str(parameters), re.MULTILINE)
+    return int(found.group(1)) if found else None
+
+
+def _make_copy(name: str, source: str, num_ctx: int) -> None:
+    _request("POST", "/api/create",
+             {"model": name, "from": source, "parameters": {"num_ctx": num_ctx},
+              "stream": False}, timeout=120.0)
+
+
+def with_context(tag: str, num_ctx: int | None = None) -> str:
+    """The name to convert with: a copy of `tag` with the context this computer should
+    use, made on first use and remade if that size changes. Metadata only, nothing is
+    loaded. Returns `tag` unchanged if the copy cannot be made."""
+    num_ctx = num_ctx or context_size()
+    name = tag if tag.startswith(PREFIX) else local_name(tag)
     try:
         models = installed()
         if has(name, models):
+            if context_of(name) not in (None, num_ctx):
+                with contextlib.suppress(OllamaError):     # the old copy still converts
+                    _make_copy(name, name if name == tag else tag, num_ctx)
             return name
-        if not has(tag, models):
+        if name == tag or not has(tag, models):
             return tag
-        _request("POST", "/api/create",
-                 {"model": name, "from": tag, "parameters": {"num_ctx": num_ctx},
-                  "stream": False}, timeout=120.0)
+        _make_copy(name, tag, num_ctx)
         return name
     except OllamaError:
         return tag
+
+
+def size_gb(name: str) -> float:
+    """A downloaded model's size, or 0 if it is not known."""
+    try:
+        for model in _request("GET", "/api/tags").get("models", []):
+            if model.get("name", "").split(":")[0] == name.split(":")[0]:
+                return round(model.get("size", 0) / 1000 ** 3, 1)
+    except OllamaError:
+        pass
+    return 0.0
+
+
+def unload(name: str) -> None:
+    """Take `name` out of memory now. Asks only if it is loaded: this must never be the
+    call that loads a model."""
+    try:
+        loaded = [m.get("name", "") for m in _request("GET", "/api/ps").get("models", [])]
+        if any(m.split(":")[0] == name.split(":")[0] for m in loaded):
+            _request("POST", "/api/generate", {"model": name, "keep_alive": 0}, timeout=30.0)
+    except OllamaError:
+        pass
 
 
 def gpu_share(name: str) -> float | None:
@@ -297,17 +347,28 @@ def speed_test(name: str) -> SpeedTest:
     from ..prompts import PAGE_PROMPT
     from ..providers import PROVIDERS
     from ..providers.openai_compat import OpenAICompatible
+    from . import guard
 
-    started = time.monotonic()
-    _request("POST", "/api/generate", {"model": name, "keep_alive": "10m"}, timeout=600.0)
-    load_seconds = time.monotonic() - started
-
-    client = OpenAICompatible(PROVIDERS["ollama"], base_url=api_url() + "/v1", timeout=900.0)
     png = test_page_png()
-    started = time.monotonic()
-    reply = client.describe(png, PAGE_PROMPT, model=name, max_tokens=4096, reasoning="default")
-    page_seconds = time.monotonic() - started
+    with guard.contained(name) as watch:
+        try:
+            started = time.monotonic()
+            _request("POST", "/api/generate", {"model": name, "keep_alive": "10m"},
+                     timeout=600.0)
+            load_seconds = time.monotonic() - started
+
+            client = OpenAICompatible(PROVIDERS["ollama"], base_url=api_url() + "/v1",
+                                      timeout=900.0)
+            started = time.monotonic()
+            reply = client.describe(png, PAGE_PROMPT, model=name, max_tokens=4096,
+                                    reasoning="default")
+            page_seconds = time.monotonic() - started
+        except Exception as exc:
+            if watch and watch.tripped:
+                raise OllamaError(guard.STOPPED_MESSAGE) from exc
+            raise
+        share = gpu_share(name)              # before the model leaves memory
     text = reply.text or ""
     return SpeedTest(model=name, load_seconds=round(load_seconds, 1),
-                     page_seconds=round(page_seconds, 1), gpu_share=gpu_share(name),
+                     page_seconds=round(page_seconds, 1), gpu_share=share,
                      read_ok=all(w.lower() in text.lower() for w in TEST_WORDS), text=text)

@@ -21,8 +21,10 @@ from dataclasses import asdict, dataclass, field
 
 from ..system import SystemProfile
 
-# On Apple Silicon the graphics may use roughly two thirds of main memory.
-UNIFIED_SHARE = 0.66
+# On Apple Silicon the graphics may use roughly two thirds of main memory, but macOS and
+# open apps need their share too. 0.6 keeps Qwen3-VL 4B off 8 GB Macs: on an 8 GB M1 it
+# froze the whole computer until it was forced off (2026-11-06).
+UNIFIED_SHARE = 0.6
 DISK_MARGIN_GB = 2.0
 MIN_NVIDIA_DRIVER = 550        # Ollama's minimum for most NVIDIA cards
 

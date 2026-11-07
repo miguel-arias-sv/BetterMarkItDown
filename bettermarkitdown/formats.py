@@ -138,8 +138,11 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
         return (f"{block}\n\n**Picture {n} - transcribed by {opts.model}:**\n\n"
                 f"{core.quote_block(description)}")
 
-    with ThreadPoolExecutor(max_workers=max(1, opts.workers)) as pool:
+    with (core.local_limits(opts, meter.abort) as watch,
+          ThreadPoolExecutor(max_workers=max(1, opts.workers)) as pool):
         blocks = list(pool.map(describe, enumerate(pictures, start=1)))
+    if watch and watch.tripped:
+        result.stopped_reason = "memory"
 
     replacements = iter(blocks)
     body = _PICTURE.sub(lambda _m: next(replacements), text).strip()
