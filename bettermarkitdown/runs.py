@@ -9,8 +9,15 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import ocr, settings
-from .config import DEFAULT_MODEL, Options, get_api_key, get_model, resolve_endpoint
+from . import credentials, ocr, settings
+from .config import (
+    DEFAULT_MODEL,
+    Options,
+    get_api_key,
+    get_model,
+    key_choice,
+    resolve_endpoint,
+)
 from .providers import Provider, known_price
 
 # Rough tokens for one request, a page image plus the prompt in and a transcription out,
@@ -77,15 +84,22 @@ def engine(fix: str = "") -> dict:
                 "local": False, "per_call": None, "seconds_per_call": None}
     model = get_model(None, provider.id)
     problem = ""
+    key_name, key_tier = key_choice(provider.id)
+    choosing = False
     if provider.needs_key and not get_api_key(provider=provider.id):
-        problem = f"There is no {provider.name} key yet."
+        choosing = bool(credentials.saved_keys(provider.id))
+        problem = (f"Choose which {provider.name} key to use, in Settings or with "
+                   "`bettermarkitdown key use`." if choosing
+                   else f"There is no {provider.name} key yet.")
     elif not model:
         problem = f"No {provider.name} model is chosen yet."
-    if problem and fix:
+    if problem and fix and not choosing:
         problem += " " + fix
     return {"ready": not problem, "problem": problem, "provider": provider.id,
             "name": provider.name, "model": model, "local": provider.local,
-            "per_call": price_per_request(model, provider.local),
+            "key_name": key_name, "key_tier": key_tier,
+            "key_note": credentials.switch_note(key_tier) if key_name else "",
+            "per_call": price_per_request(model, provider.local or key_tier == "free"),
             "seconds_per_call": settings.load().speed.get(model) if provider.local else None}
 
 
@@ -98,6 +112,8 @@ class Plan:
     model: str                   # as chosen; Ollama runs a roomier copy of it
     text_only: bool
     prior_seconds: float | None  # the speed test's seconds per page, for a first ETA
+    key_name: str = ""
+    key_tier: str = ""
 
 
 def plan(text_only: bool = False, fix: str = "") -> Plan:
@@ -109,7 +125,8 @@ def plan(text_only: bool = False, fix: str = "") -> Plan:
     provider, base_url = resolve_endpoint()
     model = get_model(None, provider.id)
     return Plan(provider, base_url, get_api_key(provider=provider.id), model, text_only,
-                settings.load().speed.get(model) if provider.local else None)
+                settings.load().speed.get(model) if provider.local else None,
+                *key_choice(provider.id))
 
 
 def options(p: Plan, *, source: Path, output: Path, work_dir: Path | None = None,
@@ -126,7 +143,8 @@ def options(p: Plan, *, source: Path, output: Path, work_dir: Path | None = None
                                "again.")
         name = ollama.with_context(p.model)
     return Options(pdf=source, output=output, work_dir=work_dir, pages=pages, title=title,
-                   model=name or DEFAULT_MODEL, api_key=p.key, base_url=p.base_url,
+                   model=name or DEFAULT_MODEL, api_key=p.key, key_name=p.key_name,
+                   key_tier=p.key_tier, base_url=p.base_url,
                    provider=p.provider.id,
                    workers=1 if p.provider.local else 3, rpm=0 if p.provider.local else 60,
                    budget_usd=budget_usd, estimate=trial, no_vision=p.text_only,
@@ -186,6 +204,7 @@ def summary(result, p: Plan, progress: Progress, *, aborted: bool, whole_pages: 
         "when": time.strftime("%Y-%m-%d %H:%M"), "provider": p.provider.id,
         # The name the person chose, not Ollama's roomier copy of it.
         "provider_name": p.provider.name, "model": "" if p.text_only else p.model,
+        "key": "" if p.text_only else p.key_name, "key_tier": p.key_tier,
         "text_only": p.text_only, "whole_pages": whole_pages and not p.text_only,
         "converted": result.pages_converted, "selected": result.pages_selected,
         "total": result.pages_total, "unit": result.unit, "failed": result.failed,

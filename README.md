@@ -157,6 +157,22 @@ or a `.env` file still works and wins over the store, which suits scripts and CI
 cp .env.example .env     # then edit .env and paste your key
 ```
 
+**More than one key for a provider**, such as a free one and a paid one, works in Settings
+in the app, or here:
+
+```bash
+bettermarkitdown key set gemini --name Paid --tier paid   # adds it; the key in use stays in use
+bettermarkitdown key use gemini --name Paid               # switch
+bettermarkitdown key status                               # names, tiers, which is in use
+bettermarkitdown book.pdf --use-key Paid                  # this run only
+```
+
+A key saved before names existed is called Main. Only you switch keys: a run never does, even
+at a daily limit, because moving to a paid key costs money and moving to a free one can let
+the provider use your documents. At a daily limit the run stops, keeps its finished pages and
+offers your other keys. The tier is your word, since the tool cannot see a key's tier: a key
+you mark free shows as free, and a key you have not marked is shown at list price.
+
 Each provider reads only its own variables (`GEMINI_API_KEY`, `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, ...), so a key is never sent to another company's server.
 `.env` is gitignored. The tool never prints a key in full or commits one.

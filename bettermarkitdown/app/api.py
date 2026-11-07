@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import asdict
 
 from .. import __version__, credentials, formats, settings
-from ..config import find_api_key, get_model, redact, resolve_endpoint
+from ..config import check_tier, find_api_key, get_model, redact, resolve_endpoint
 from ..core import list_models
 from ..local import CATALOG, describe, ollama, recommend
 from ..providers import PROVIDERS, get_provider
@@ -28,6 +28,10 @@ def _provider_json(spec) -> dict:
         "key_url": spec.key_url, "key_steps": list(spec.key_steps),
         "default_model": spec.default_model or "", "models": models,
         "key_source": source, "key_hint": redact(key) if key else "",
+        "keys": [{"name": k.name, "tier": k.tier, "active": k.active,
+                  "hint": redact(credentials.stored_key(spec.id, k.name)),
+                  "note": credentials.switch_note(k.tier)}
+                 for k in credentials.saved_keys(spec.id)],
         "ready": not spec.pip_extra or importlib.util.find_spec(spec.pip_extra) is not None,
     }
 
@@ -65,11 +69,14 @@ def save_settings(app, body) -> dict:
 
 
 def save_key(app, body) -> dict:
-    """Check the key with a free request (listing models), then store it."""
+    """Check the key with a free request (listing models), then store it. With a `name`
+    it is added under that name; without one it replaces the key in use."""
     spec = get_provider(str(body.get("provider", "")))
     key = str(body.get("key", "")).strip()
     if not key:
         raise ValueError("Paste the key first.")
+    name = credentials.clean_name(str(body["name"])) if body.get("name") else None
+    tier = check_tier(spec, credentials.clean_tier(str(body["tier"]))) if "tier" in body else None
     if not spec.base_url:
         raise ValueError(f"{spec.name} needs an address; set it up from the command line.")
     if spec.pip_extra and importlib.util.find_spec(spec.pip_extra) is None:
@@ -81,13 +88,27 @@ def save_key(app, body) -> dict:
         # Some providers quote part of a bad key back; never echo it in full.
         message = str(exc).replace(key, redact(key))
         raise HTTPError(400, f"{spec.name} did not accept this key: {message[:300]}") from None
-    credentials.store_key(spec.id, key)
+    credentials.store_key(spec.id, key, name, tier)
     return {"ok": True, "hint": redact(key), "models": len(models)}
 
 
 def forget_key(app, body) -> dict:
     spec = get_provider(str(body.get("provider", "")))
-    return {"removed": credentials.forget_key(spec.id)}
+    return {"removed": credentials.forget_key(spec.id, body.get("name") or None)}
+
+
+def use_key(app, body) -> dict:
+    """Only ever a person's choice: nothing in a run switches keys."""
+    spec = get_provider(str(body.get("provider", "")))
+    credentials.use_key(spec.id, str(body.get("name", "")))
+    return {"ok": True}
+
+
+def key_tier(app, body) -> dict:
+    spec = get_provider(str(body.get("provider", "")))
+    tier = check_tier(spec, credentials.clean_tier(str(body.get("tier", ""))))
+    credentials.set_tier(spec.id, str(body.get("name", "")), tier)
+    return {"ok": True}
 
 
 def models(app, body) -> dict:
@@ -230,6 +251,8 @@ ROUTES = {
     ("POST", "/api/settings"): save_settings,
     ("POST", "/api/key"): save_key,
     ("POST", "/api/key/forget"): forget_key,
+    ("POST", "/api/key/use"): use_key,
+    ("POST", "/api/key/tier"): key_tier,
     ("POST", "/api/local/install"): local_install,
     ("POST", "/api/local/pull"): local_pull,
     ("POST", "/api/local/test"): local_test,

@@ -9,7 +9,7 @@ instead (see wizard.py). Other commands:
     bettermarkitdown agent status|install|uninstall   the skill for AI agents
     bettermarkitdown mcp                         a tool server for AI agents (MCP, stdio)
     bettermarkitdown providers
-    bettermarkitdown key set|test|forget|status [PROVIDER]
+    bettermarkitdown key set|test|forget|status|use|tier [PROVIDER] [--name N] [--tier T]
     bettermarkitdown system | doctor              [--json]
     bettermarkitdown local status|install|pull|test|setup [MODEL]
 """
@@ -27,9 +27,11 @@ from . import __version__, credentials, ocr
 from .config import (
     DEFAULT_MODEL,
     Options,
+    check_tier,
     find_api_key,
     get_api_key,
     get_model,
+    key_choice,
     redact,
     resolve_endpoint,
 )
@@ -66,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--provider", choices=list(PROVIDERS),
                         help="which AI service to use (default: gemini, or $BMID_PROVIDER). "
                              "`bettermarkitdown providers` lists them")
+    parser.add_argument("--use-key", metavar="NAME",
+                        help="use this saved key for this run only, instead of the one in use "
+                             "(`bettermarkitdown key status` lists them)")
     parser.add_argument("--model", default=None,
                         help=f"default: the provider's own ({DEFAULT_MODEL} for Gemini), or "
                              "$BMID_MODEL if set")
@@ -236,16 +241,21 @@ def describe_model(name: str) -> str:
 
 
 def key_command(argv: list[str]) -> int:
-    """`key set|test|forget|status [PROVIDER] [--stdin]`."""
+    """`key set|test|forget|status|use|tier [PROVIDER] [--name N] [--tier T] [--stdin]`."""
     parser = argparse.ArgumentParser(prog="bettermarkitdown key",
                                      description="Manage API keys in this computer's "
                                                  "password store.")
-    parser.add_argument("action", choices=["set", "test", "forget", "status"])
+    parser.add_argument("action", choices=["set", "test", "forget", "status", "use", "tier"])
     parser.add_argument("provider", nargs="?", choices=[*PROVIDERS, "all"],
                         help="a provider; `forget all` removes every saved key (the "
                              "uninstaller uses it when asked to delete your data)")
     parser.add_argument("--stdin", action="store_true",
                         help="read the key from standard input instead of a hidden prompt")
+    parser.add_argument("--name", help="which key: `set` adds it under this name; the key in "
+                                       "use stays in use until `key use`")
+    parser.add_argument("--tier", choices=["free", "paid"],
+                        help="your word for what this key is: the tool cannot tell, and shows "
+                             "a free key's runs as costing nothing")
     args = parser.parse_args(argv)
 
     if args.action == "forget" and args.provider == "all":
@@ -265,11 +275,37 @@ def key_command(argv: list[str]) -> int:
             if spec.needs_key or spec.key_env:
                 key, source = find_api_key(spec.id)
                 print(f"{spec.id:<11} {redact(key):<18} {source}")
+                for saved in credentials.saved_keys(spec.id):
+                    mark = "in use" if saved.active else ""
+                    print(f"{'':<11} {saved.name:<18} {saved.tier or 'tier not set':<13} {mark}")
         return 0
 
     if not args.provider:
         parser.error(f"'{args.action}' needs a provider: {', '.join(PROVIDERS)}")
     spec = get_provider(args.provider)
+
+    if args.action in ("use", "tier"):
+        if not args.name or (args.action == "tier" and not args.tier):
+            parser.error(f"'{args.action}' needs --name"
+                         + (" and --tier" if args.action == "tier" else ""))
+        try:
+            if args.action == "use":
+                credentials.use_key(spec.id, args.name)
+            else:
+                credentials.set_tier(spec.id, args.name, check_tier(spec, args.tier))
+        except (ValueError, credentials.KeyStoreUnavailable) as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if args.action == "use":
+            saved = credentials.named_key(spec.id, args.name)
+            print(f"Now using {saved.name} for {spec.name}: "
+                  f"{credentials.switch_note(saved.tier)}.")
+            source = find_api_key(spec.id)[1]
+            if source != "password store":
+                print(f"But {source} is set, and wins until it is removed.")
+        else:
+            print(f"{args.name} is marked {args.tier}.")
+        return 0
 
     if args.action == "set":
         if args.stdin:
@@ -280,25 +316,39 @@ def key_command(argv: list[str]) -> int:
                 print(f"Create a {spec.name} key at {spec.key_url}")
             key = getpass.getpass(f"Paste the {spec.name} key (hidden): ").strip()
         try:
-            credentials.store_key(spec.id, key)
+            credentials.store_key(spec.id, key, args.name, check_tier(spec, args.tier))
         except (ValueError, credentials.KeyStoreUnavailable) as exc:
             print(exc, file=sys.stderr)
             return 1
         print(f"Saved {redact(key)} for {spec.name} in this computer's password store.")
+        active = credentials.active_key(spec.id)
+        if args.name and not (active and active.name.casefold() == args.name.casefold()):
+            print(f"It is not in use yet. Switch to it: bettermarkitdown key use {spec.id} "
+                  f'--name "{args.name}"')
         return 0
 
     if args.action == "forget":
+        saved = credentials.saved_keys(spec.id)
+        if not args.name and len(saved) > 1:
+            print(f"{spec.name} has {len(saved)} saved keys: "
+                  f"{', '.join(k.name for k in saved)}. Choose one with --name.", file=sys.stderr)
+            return 1
         try:
-            removed = credentials.forget_key(spec.id)
+            removed = credentials.forget_key(spec.id, args.name)
         except credentials.KeyStoreUnavailable as exc:
             print(exc, file=sys.stderr)
             return 1
         print(f"Removed the saved {spec.name} key." if removed
               else f"No {spec.name} key was saved.")
+        if removed and credentials.saved_keys(spec.id) and not credentials.active_key(spec.id):
+            print(f"No key is in use now. Choose one: bettermarkitdown key use {spec.id} "
+                  "--name NAME")
         return 0
 
     # test: listing models is free, and proves the key and the endpoint both work.
     key, source = find_api_key(spec.id)
+    if args.name:
+        key, source = credentials.stored_key(spec.id, args.name), f"the saved key {args.name}"
     if spec.needs_key and not key:
         print(f"No {spec.name} key. Run: bettermarkitdown key set {spec.id}", file=sys.stderr)
         return 1
@@ -507,8 +557,17 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         return say.fail(exc)
     api_key = get_api_key(provider=provider.id)
+    if args.use_key:
+        api_key = credentials.stored_key(provider.id, args.use_key)
+        if not api_key:
+            return say.fail(f"No saved {provider.name} key is called {args.use_key}. "
+                            "`bettermarkitdown key status` lists them.")
     no_key = (f"No {provider.name} key. Run `bettermarkitdown key set {provider.id}`, set "
               f"{' or '.join(provider.key_env) or 'a key'}, or pass --no-vision.")
+    if not api_key and credentials.saved_keys(provider.id):
+        no_key = (f"No {provider.name} key is in use. Choose one: `bettermarkitdown key use "
+                  f"{provider.id} --name NAME`, or pass --use-key NAME.")
+    key_name, key_tier = key_choice(provider.id, args.use_key)
 
     if args.list_models:
         if not api_key and provider.needs_key:
@@ -595,6 +654,8 @@ def main(argv: list[str] | None = None) -> int:
         pages=args.pages, title=args.title, model=model,
         reasoning=args.reasoning,
         api_key=api_key,
+        key_name=key_name,
+        key_tier=key_tier,
         base_url=base_url,
         provider=provider.id,
         dpi=args.dpi, max_edge=args.max_edge,
@@ -731,6 +792,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if result.stopped_reason == "DailyQuotaExceeded":
         print("\n!! Stopped early: this key hit its per-day quota for this model.")
+        for saved in credentials.saved_keys(opts.provider or ""):
+            if saved.name.casefold() != opts.key_name.casefold():
+                print(f'   Finished pages are kept. To continue with {saved.name}, '
+                      f"{credentials.switch_note(saved.tier)}: run it again with "
+                      f'--use-key "{saved.name}"')
         return 2
     if result.stopped_reason == "memory":
         from .local.guard import STOPPED_MESSAGE

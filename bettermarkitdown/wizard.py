@@ -27,7 +27,7 @@ from rich.table import Table
 from rich.text import Text
 
 from . import ocr
-from .config import Options, get_api_key, redact, resolve_endpoint
+from .config import Options, get_api_key, key_choice, redact, resolve_endpoint
 from .core import Meter, convert, list_models
 from .providers import Provider, known_price, model_note
 
@@ -184,6 +184,7 @@ def run_wizard() -> int:
 
     opts = Options(pdf=pdf, output=output, work_dir=work_dir, pages=pages, model=model,
                    dpi=dpi, workers=workers, api_key=api_key, no_vision=no_vision,
+                   key_name=key_choice(provider.id)[0], key_tier=key_choice(provider.id)[1],
                    provider=provider.id, base_url=base_url, rpm=0 if provider.local else 60,
                    save_images=False, ocr_fallback=ocr.available())
 

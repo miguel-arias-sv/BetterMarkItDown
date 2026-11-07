@@ -102,7 +102,8 @@ function engineNotice(engine) {
   return h("p", { class: "notice", text: engine.local
     ? `Converting with ${engine.model} on this computer: nothing leaves it.`
     : `Converting with ${engine.name} (${engine.model}). Pages that need the AI are sent to it; ` +
-      "the rest are read on this computer." });
+      "the rest are read on this computer." +
+      (engine.key_name ? ` Key in use: ${engine.key_name}, ${engine.key_note}.` : "") });
 }
 
 function docStatus(d, running) {
@@ -257,8 +258,26 @@ function describeEstimate(est, engine, textOnly) {
     return est.seconds ? `${n}: roughly ${duration(est.seconds)} on this computer, from its speed test. Free.`
       : `${n}. Free; the time left shows once the first page is done.`;
   }
+  if (engine.key_tier === "free") return `${n}: free, on your key ${engine.key_name}, within its daily limits.`;
   if (est.cost !== null) return `${n}: about ${money(est.cost)} at ${engine.model}'s list price. Rough: pages full of detail cost more.`;
   return `${n}. There is no price list for ${engine.model} here: check ${engine.name}'s billing page.`;
+}
+
+// After a daily limit: offered, never done for the person, because another key can cost
+// money or change what happens to the documents. Finished pages are kept either way.
+function otherKeys(d, r) {
+  const keys = (provider(r.provider) || { keys: [] }).keys;
+  const inUse = keys.find((k) => k.active);
+  if (inUse && inUse.name !== r.key) {
+    return [h("p", { text: `Now using ${inUse.name}: ${inUse.note}. Convert again to continue; finished pages are kept.` })];
+  }
+  return keys.filter((k) => k.name !== r.key).map((k) => h("div", { class: "actions" },
+    h("button", { type: "button", onclick: async () => {
+      await api("/api/key/use", { provider: r.provider, name: k.name });
+      await refresh();
+      replace("doc", d.id);
+    } }, `Switch to ${k.name}`),
+    h("span", { class: "explain", text: `${k.note}.` })));
 }
 
 function lastRunSummary(d) {
@@ -275,13 +294,15 @@ function lastRunSummary(d) {
   } else if (r.stopped === "memory") {
     out.push(h("p", { class: "warn", text: `Stopped to keep this Mac usable: it was running out of memory, with ${r.converted} of ${plural(r.selected, unit)} done. Close other apps and convert again to continue, or choose an online provider in Settings.` }));
   } else if (r.stopped === "DailyQuotaExceeded") {
-    out.push(h("p", { class: "warn", text: "Stopped: this key reached its daily limit for this model. Try again tomorrow, or choose another model in Settings." }));
+    out.push(h("p", { class: "warn", text: `Stopped: this key reached its daily limit for this model, with ${r.converted} of ${plural(r.selected, unit)} done. Try again tomorrow, or choose another model in Settings.` }));
+    out.push(...otherKeys(d, r));
   } else if (unit === "picture" && r.text_only) {
     out.push(h("p", { text: `Converted on ${r.when}, as text only: the pictures are saved next to the result, without a description.` }));
   } else {
     out.push(h("p", { text: `${r.trial ? "Tried" : "Converted"} ${r.converted} of ${plural(r.selected, unit)} on ${r.when}, in ${duration(r.seconds)}, ${used}.` +
                             (r.cost ? ` It cost ${money(r.cost)}.`
-                              : r.text_only || r.provider === "ollama" ? " Free: nothing was paid for." : "") }));
+                              : r.text_only || r.provider === "ollama" ? " Free: nothing was paid for."
+                              : r.key_tier === "free" ? ` Shown as free: you marked the key ${r.key} as free.` : "") }));
   }
   if (r.trial && r.converted && r.cost) {
     const left = d.page_count - d.converted.length;

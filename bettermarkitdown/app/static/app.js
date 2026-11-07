@@ -295,8 +295,26 @@ screens.keyguide = (pid) => {
       "I have my key")));
 };
 
-screens.keyform = (pid) => {
+// A key's tier is the person's word: the tool cannot tell, and a run on a free key shows as free.
+function tierSelect(p, selected, onchange) {
+  if (!p.free_tier) return null;
+  const select = h("select", { "aria-label": "What kind of key is this?", onchange: () => onchange(select.value) },
+    [["", "Not sure yet"], ["free", "Free"], ["paid", "Paid"]]
+      .map(([v, label]) => h("option", { value: v, selected: selected === v }, label)));
+  return select;
+}
+
+// keyform(provider): replace the key in use. keyform(provider, "add"): add another by name.
+// keyform(provider, "replace", name): replace that one.
+screens.keyform = (pid, mode, target) => {
   const p = provider(pid || "gemini");
+  const adding = mode === "add";
+  const replaced = p.keys.find((k) => k.name === target) || p.keys.find((k) => k.active);
+  const naming = adding || !p.keys.length;
+  const nameInput = naming ? h("input", { id: "key-name", maxlength: "30", autocomplete: "off", spellcheck: "false",
+    value: adding ? "" : "Main" }) : null;
+  let tier = adding || !replaced ? "" : replaced.tier;
+  const tierInput = tierSelect(p, tier, (value) => { tier = value; });
   const input = h("input", { type: "password", id: "key", autocomplete: "off", spellcheck: "false" });
   const status = h("p", { role: "status" });
   const submit = h("button", { type: "button", class: "primary" }, "Check and save");
@@ -305,10 +323,13 @@ screens.keyform = (pid) => {
     status.className = "";
     status.textContent = "Checking the key with a free request...";
     try {
-      const out = await withLlama(status, "Checking the key", () => api("/api/key", { provider: p.id, key: input.value }));
+      const name = naming ? nameInput.value.trim() : replaced && replaced.name;
+      const out = await withLlama(status, "Checking the key", () => api("/api/key", { provider: p.id, key: input.value,
+        ...(name ? { name } : {}), ...(p.free_tier ? { tier } : {}) }));
       input.value = "";
       await refresh();
-      show("keydone", p.id, out.hint);
+      if (adding) replace("settings");
+      else show("keydone", p.id, out.hint);
     } catch (err) {
       status.className = "error";
       status.textContent = err.message;
@@ -316,14 +337,19 @@ screens.keyform = (pid) => {
     }
   });
   return card("Add your API key", null,
-    h("label", { for: "provider", text: "Company" }),
-    providerSelect(p.id, (id) => replace("keyform", id)),
+    mode ? null : h("label", { for: "provider", text: "Company" }),
+    mode ? null : providerSelect(p.id, (id) => replace("keyform", id)),
     !p.ready ? h("p", { class: "warn", text: `${p.name} needs an add-on that is not installed yet.` }) : null,
+    naming ? h("label", { for: "key-name", text: "A name for this key" }) : null, nameInput,
     h("label", { for: "key", text: "Key" }), input,
+    tierInput ? h("label", { text: "What kind of key is this?" }, tierInput) : null,
+    tierInput ? h("p", { class: "explain", text: "The tool cannot tell by itself. A free key's runs show as free; on the free tier, " +
+        `${p.name} may use your documents to improve its products.` }) : null,
     fromEnvironment(p)
       ? h("p", { class: "warn", text: `A key is already set in the ${p.key_source} environment variable, ` +
           "and it takes precedence over a key saved here. Change or remove that variable to use this one." })
-      : p.key_hint ? h("p", { class: "explain", text: `A key is already saved (${p.key_hint}); saving replaces it.` }) : null,
+      : adding ? h("p", { class: "explain", text: "This adds a key. The one in use stays in use until you switch in Settings." })
+      : replaced ? h("p", { class: "explain", text: `${replaced.name} is already saved (${replaced.hint}); saving replaces it.` }) : null,
     explain("The key is checked with a free request, then kept in this computer's password vault. " +
             "It is never shown in full again."),
     status,
@@ -575,20 +601,35 @@ screens.done = async () => {
 screens.settings = async () => {
   await refresh();
   const active = S.state.active;
+  const keyRow = (p, k) => h("div", { class: "saved-key" },
+    h("span", {}, h("strong", { text: k.name }), ` (${k.hint})`, k.active ? " - in use" : ""),
+    tierSelect(p, k.tier, async (tier) => {
+      await api("/api/key/tier", { provider: p.id, name: k.name, tier });
+      replace("settings");
+    }),
+    k.active ? null : h("button", { type: "button", class: "link", onclick: async () => {
+      await api("/api/key/use", { provider: p.id, name: k.name });
+      replace("settings");
+    } }, "Use this key"),
+    h("button", { type: "button", class: "link", onclick: () => show("keyform", p.id, "replace", k.name) }, "Replace"),
+    h("button", { type: "button", class: "link", onclick: async () => {
+      await api("/api/key/forget", { provider: p.id, name: k.name });
+      replace("settings");
+    } }, "Forget"),
+    k.active ? null : h("p", { class: "explain", text: `${k.note[0].toUpperCase()}${k.note.slice(1)}.` }));
   const rows = S.state.providers.map((p) => {
     const ready = !p.needs_key || p.key_source;
+    const listed = p.keys.length && !fromEnvironment(p);
     return h("tr", {},
       h("td", {}, h("strong", { text: p.name })),
       h("td", { text: p.id === "custom" ? "set it up from the command line, with --base-url"
         : !p.needs_key ? "no key needed"
         : fromEnvironment(p) ? `key set in the ${p.key_source} environment variable (change it there)`
-        : p.key_source ? `key saved (${p.key_hint})` : "no key" }),
+        : listed ? "" : "no key" }, listed ? [
+        p.keys.some((k) => k.active) ? null : h("p", { class: "warn", text: "No key is in use. Choose one." }),
+        ...p.keys.map((k) => keyRow(p, k))] : null),
       h("td", {},
-        p.needs_key && p.key_url && !fromEnvironment(p) ? h("button", { type: "button", class: "link", onclick: () => show("keyform", p.id) }, p.key_source ? "Replace key" : "Add key") : null,
-        p.key_source === "password store" ? h("button", { type: "button", class: "link", onclick: async () => {
-          await api("/api/key/forget", { provider: p.id });
-          replace("settings");
-        } }, "Forget") : null,
+        p.needs_key && p.key_url && !fromEnvironment(p) ? h("button", { type: "button", class: "link", onclick: () => (p.keys.length ? show("keyform", p.id, "add") : show("keyform", p.id)) }, p.keys.length ? "Add another key" : "Add key") : null,
         ready && p.id !== "custom" ? h("button", { type: "button", class: "link", onclick: () => p.local ? show("localcheck") : show("pickmodel", p.id) },
           active.provider === p.id ? "Change model" : "Use") : null));
   });

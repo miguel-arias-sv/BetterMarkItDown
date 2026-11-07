@@ -137,6 +137,24 @@ def get_api_key(explicit: str | None = None,
     return find_api_key(provider)[0]
 
 
+def key_choice(provider: str, name: str | None = None) -> tuple[str, str]:
+    """(name, tier) of the saved key a run will use; ("", "") if it is another kind of key,
+    such as one in an environment variable, which the tool knows nothing about."""
+    if name:
+        chosen = credentials.named_key(get_provider(provider).id, name)
+    elif find_api_key(provider)[1] == "password store":
+        chosen = credentials.active_key(get_provider(provider).id)
+    else:
+        chosen = None
+    return (chosen.name, chosen.tier) if chosen else ("", "")
+
+
+def check_tier(spec, tier: str | None) -> str | None:
+    if tier == "free" and not spec.free_tier:
+        raise ValueError(f"{spec.name} has no free tier here.")
+    return tier
+
+
 def redact(key: str | None) -> str:
     """Show only enough of a key to confirm which one is loaded."""
     if not key:
@@ -157,6 +175,8 @@ class Options:
     model: str = DEFAULT_MODEL
     reasoning: str = "none"
     api_key: str | None = None
+    key_name: str = ""                # the saved key in use, if it is one
+    key_tier: str = ""                # free | paid | "" (see credentials.py)
     base_url: str = GEMINI_BASE_URL
     provider: str | None = None       # a PROVIDERS id; None: inferred from base_url
 
@@ -204,7 +224,9 @@ class Options:
 
     def prices(self) -> tuple[float, float]:
         listed = known_price(self.model)
-        if listed:
+        if self.key_tier == "free":
+            base = (0.0, 0.0)         # the person's word: the tool cannot see a key's tier
+        elif listed:
             base = listed
         elif self.is_gemini():
             base = FALLBACK_PRICE

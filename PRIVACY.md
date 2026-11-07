@@ -20,7 +20,9 @@ To send nothing: use a model on your own computer (Ollama), or convert text only
 
 A key you save is kept in your computer's own password store (Windows Credential Manager,
 the macOS Keychain, or the Secret Service on Linux), never in a plain file, and is sent only
-to the service it belongs to. The program never shows a key in full.
+to the service it belongs to. The program never shows a key in full. If you save several
+keys for one service, their names and whether you marked them free or paid are kept in the
+password store too. Switching keys is always your choice: a run never does it for you.
 
 ## Downloads you ask for
 
