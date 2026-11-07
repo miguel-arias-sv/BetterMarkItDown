@@ -149,6 +149,19 @@ def key_choice(provider: str, name: str | None = None) -> tuple[str, str]:
     return (chosen.name, chosen.tier) if chosen else ("", "")
 
 
+# Google publishes no free-tier numbers and changes them; this is a cautious guess that a
+# run should stay under them. A faster key is one the person has not marked free.
+FREE_RPM = 5
+
+
+def pace(local: bool, key_tier: str = "") -> tuple[int, int]:
+    """(pages at once, requests a minute) for a run. A local server reads one page at a
+    time and has no rate limit; a free key has a low one."""
+    if local:
+        return 1, 0
+    return (1, FREE_RPM) if key_tier == "free" else (3, 60)
+
+
 def check_tier(spec, tier: str | None) -> str | None:
     if tier == "free" and not spec.free_tier:
         raise ValueError(f"{spec.name} has no free tier here.")
@@ -223,10 +236,16 @@ class Options:
         return get_provider(self.provider) if self.provider else infer_provider(self.base_url)
 
     def prices(self) -> tuple[float, float]:
-        listed = known_price(self.model)
+        """The prices a run shows. On a key marked free that is nothing, by the person's
+        word: the tool cannot see a key's tier."""
         if self.key_tier == "free":
-            base = (0.0, 0.0)         # the person's word: the tool cannot see a key's tier
-        elif listed:
+            return self.price_in or 0.0, self.price_out or 0.0
+        return self.list_prices()
+
+    def list_prices(self) -> tuple[float, float]:
+        """What the model costs on a paid key, which a spending cap always counts."""
+        listed = known_price(self.model)
+        if listed:
             base = listed
         elif self.is_gemini():
             base = FALLBACK_PRICE

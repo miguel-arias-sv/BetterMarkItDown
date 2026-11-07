@@ -98,13 +98,17 @@ def model_processes() -> list[int]:
     return found
 
 
+# Windows has no SIGKILL, and needs no limits; its SIGTERM ends a process outright too.
+KILL = getattr(signal, "SIGKILL", signal.SIGTERM)
+
+
 def end_model(name: str) -> None:
     """Free the memory now. A page in progress holds the model in place, so its processes
     are ended first, in a way they cannot delay: asking Ollama to unload it would wait
     for that page."""
     for pid in model_processes():
         with contextlib.suppress(OSError):
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, KILL)
     ollama.unload(name)
 
 

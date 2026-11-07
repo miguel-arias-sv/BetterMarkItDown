@@ -173,6 +173,17 @@ the provider use your documents. At a daily limit the run stops, keeps its finis
 offers your other keys. The tier is your word, since the tool cannot see a key's tier: a key
 you mark free shows as free, and a key you have not marked is shown at list price.
 
+With two or more saved keys, the app shows a **Key** picker next to Convert. It changes the
+key in use, the same as in Settings, and the estimate follows it.
+
+A key marked free reads one page at a time, about one request every 12 seconds, to stay under
+limits Google does not publish; `--rpm` and `--workers` change that. A spending cap still
+counts at list price on a key marked free, so a paid key marked free by mistake is stopped too.
+
+For Google, a free and a paid key must come from **two separate projects**, the free one with
+no billing linked: a key has no billing of its own, it takes its tier and its limits from its
+project, so a second key in the same project changes nothing.
+
 Each provider reads only its own variables (`GEMINI_API_KEY`, `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, ...), so a key is never sent to another company's server.
 `.env` is gitignored. The tool never prints a key in full or commits one.

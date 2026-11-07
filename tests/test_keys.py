@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from bettermarkitdown import cli, core, credentials
-from bettermarkitdown.config import Options, find_api_key, key_choice
+from bettermarkitdown import cli, core, credentials, runs
+from bettermarkitdown.config import FREE_RPM, Options, find_api_key, key_choice
 from bettermarkitdown.credentials import SERVICE, SavedKey
 
 KEY = "AIza-a-long-enough-test-key-one"
@@ -138,6 +139,94 @@ def test_a_free_key_costs_nothing_and_a_paid_key_keeps_the_list_price(tmp_path):
     assert Options(**common, key_tier="free").prices() == (0.0, 0.0)
     assert Options(**common, key_tier="paid").prices() != (0.0, 0.0)
     assert Options(**common).prices() != (0.0, 0.0), "an unlabelled key is never assumed free"
+
+
+def run_a_scanned_book(tier, tmp_path, monkeypatch, budget):
+    from tests.test_workspace import make_pdf
+
+    def describe(client, model, png, prompt, **kwargs):
+        kwargs["meter"].add(SimpleNamespace(prompt_tokens=50000, completion_tokens=50000,
+                                            total_tokens=100000))
+        return "A page of text that the model read."
+
+    monkeypatch.setattr(core, "describe_image", describe)
+    pdf = make_pdf(tmp_path / "book.pdf", text_pages=0, scanned_pages=3)
+    return core.convert(Options(pdf=pdf, output=tmp_path / "book.md", provider="gemini",
+                                model="gemini-3.6-flash", api_key=KEY, key_tier=tier,
+                                budget_usd=budget, workers=1, rpm=0, ocr_fallback=False))
+
+
+@pytest.mark.parametrize("tier", ["", "paid", "free"])
+def test_a_spending_cap_stops_a_run_whatever_the_key_is_marked(tier, tmp_path, monkeypatch):
+    result = run_a_scanned_book(tier, tmp_path, monkeypatch, budget=0.01)
+    assert result.stopped_reason == "budget" and result.pages_converted < 3
+
+
+def test_a_key_marked_free_shows_as_free_even_when_the_cap_stops_it(tmp_path, monkeypatch):
+    assert run_a_scanned_book("free", tmp_path, monkeypatch, budget=0.01).cost == 0
+
+
+def test_no_cap_lets_a_key_marked_free_finish(tmp_path, monkeypatch):
+    result = run_a_scanned_book("free", tmp_path, monkeypatch, budget=0)
+    assert result.stopped_reason == "" and result.pages_converted == 3
+
+
+def test_a_price_the_person_gives_counts_for_the_cap_too(tmp_path):
+    common = dict(pdf=tmp_path / "a.pdf", output=tmp_path / "a.md", model="gemini-3.6-flash",
+                  price_in=1.0, price_out=2.0)
+    assert Options(**common, key_tier="free").list_prices() == (1.0, 2.0)
+
+
+def test_a_key_marked_free_goes_slowly_and_says_how_long(two_keys, monkeypatch, tmp_path):
+    from tests.test_workspace import make_pdf
+
+    monkeypatch.setenv("BMID_PROVIDER", "gemini")
+    pdf = make_pdf(tmp_path / "book.pdf", text_pages=0, scanned_pages=3)
+    opts = runs.options(runs.plan(), source=pdf, output=tmp_path / "book.md")
+    assert (opts.workers, opts.rpm) == (1, FREE_RPM)
+    assert runs.inspect_file(pdf)["estimate"] == {
+        "requests": 3, "cost": 0.0, "seconds": 3 * 60 / FREE_RPM}
+
+    credentials.use_key("gemini", "Paid")
+    opts = runs.options(runs.plan(), source=pdf, output=tmp_path / "book.md")
+    assert (opts.workers, opts.rpm) == (3, 60)
+    assert runs.inspect_file(pdf)["estimate"]["seconds"] is None
+
+
+def run_from_the_command_line(monkeypatch, tmp_path, args, stopped=""):
+    seen = []
+
+    def fake_convert(opts, on_event=None):
+        seen.append(opts)
+        opts.output.write_text("x", "utf-8")
+        return core.Result(output=opts.output, pages_total=3, pages_selected=3,
+                           pages_converted=1, stopped_reason=stopped)
+
+    monkeypatch.setattr(core, "convert", fake_convert)
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    cli.main([str(pdf), "--provider", "gemini", *args])
+    return seen[0]
+
+
+def test_cli_paces_a_free_key_unless_told_otherwise(two_keys, monkeypatch, tmp_path):
+    opts = run_from_the_command_line(monkeypatch, tmp_path, ["--use-key", "Free"])
+    assert (opts.workers, opts.rpm) == (1, FREE_RPM)
+    opts = run_from_the_command_line(monkeypatch, tmp_path, ["--use-key", "Paid"])
+    assert (opts.workers, opts.rpm) == (3, 60)
+    opts = run_from_the_command_line(monkeypatch, tmp_path, ["--use-key", "Free", "--rpm", "30",
+                                                             "--workers", "2"])
+    assert (opts.workers, opts.rpm) == (2, 30)
+
+
+def test_cli_says_the_cap_counted_at_list_price_on_a_free_key(
+        two_keys, monkeypatch, tmp_path, capsys):
+    run_from_the_command_line(monkeypatch, tmp_path, ["--use-key", "Free", "--budget-usd", "1"],
+                              stopped="budget")
+    assert "list price" in capsys.readouterr().out
+    run_from_the_command_line(monkeypatch, tmp_path, ["--use-key", "Paid", "--budget-usd", "1"],
+                              stopped="budget")
+    assert "list price" not in capsys.readouterr().out
 
 
 def test_the_engine_says_which_key_a_run_will_use(two_keys, monkeypatch):

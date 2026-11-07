@@ -156,6 +156,10 @@ table.keys { border-collapse: collapse; width: 100%; }
 .saved-key { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 3px 0; }
 .saved-key .explain { flex-basis: 100%; margin: 0; }
 .saved-key select { width: auto; margin: 0; }
+.key-choice { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.key-choice label { margin: 0; }
+.key-choice select { width: auto; min-width: 0; max-width: 100%; margin: 0; }
+.doc-side .key-choice select { flex: 1; }
 
 progress { width: 100%; height: 14px; margin: 12px 0 4px; accent-color: var(--primary); }
 pre {

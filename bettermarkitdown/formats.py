@@ -94,7 +94,7 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
     text = study.escape_money(text)
     pictures = list(_PICTURE.finditer(text))
 
-    meter = core.Meter(*opts.prices(), opts.budget_usd, abort)
+    meter = core.Meter(*opts.prices(), opts.budget_usd, abort, opts.list_prices())
     cache = core.Cache(work_dir / "cache.json")
     limiter = core.RateLimiter(opts.rpm)
     assets = opts.assets_dir()

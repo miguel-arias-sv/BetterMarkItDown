@@ -126,14 +126,21 @@ class Meter:
     billed output is total_tokens - prompt_tokens. On a dense book page that gap
     was measured at 1574 thinking tokens against a 475-token transcription, which
     is why `reasoning="none"` is the default.
+
+    `cap_prices` are what the spending cap counts, when they differ from the prices shown:
+    a key marked free shows as free, but that is only the person's word, so a cap set on
+    it still counts at list price. A paid key marked free by mistake would otherwise spend
+    with nothing to stop it.
     """
 
     def __init__(self, price_in: float, price_out: float, budget: float = 0.0,
-                 abort: threading.Event | None = None):
+                 abort: threading.Event | None = None,
+                 cap_prices: tuple[float, float] | None = None):
         self._lock = threading.Lock()
         self.price_in = price_in
         self.price_out = price_out
         self.budget = budget
+        self.cap_prices = cap_prices or (price_in, price_out)
         self.abort = abort if abort is not None else threading.Event()
         self.calls = 0
         self.tok_in = 0
@@ -149,12 +156,17 @@ class Meter:
             self.calls += 1
             self.tok_in += prompt
             self.tok_out += max(completion, total - prompt)
-            over = self.budget and self.cost() > self.budget
+            over = self.over_budget()
         if over:
             self.abort.set()
 
     def cost(self) -> float:
         return (self.tok_in * self.price_in + self.tok_out * self.price_out) / 1e6
+
+    def over_budget(self) -> bool:
+        price_in, price_out = self.cap_prices
+        spent = (self.tok_in * price_in + self.tok_out * price_out) / 1e6
+        return bool(self.budget) and spent > self.budget
 
     @staticmethod
     def usd(amount: float) -> str:
@@ -607,7 +619,7 @@ def convert(opts: Options, on_event: Event | None = None,
         raise RuntimeError("No pages selected.")
 
     price_in, price_out = opts.prices()
-    meter = Meter(price_in, price_out, opts.budget_usd, abort)
+    meter = Meter(price_in, price_out, opts.budget_usd, abort, opts.list_prices())
     cache = Cache(work_dir / "cache.json")
     limiter = RateLimiter(opts.rpm)
 
@@ -687,7 +699,7 @@ def convert(opts: Options, on_event: Event | None = None,
     result.truncated.sort()
     result.pages_small_images.sort()
     result.pages_notes.sort()
-    if abort.is_set() and opts.budget_usd and meter.cost() > opts.budget_usd:
+    if abort.is_set() and meter.over_budget():
         result.stopped_reason = "budget"
     emit("finished", result=result)
     return result

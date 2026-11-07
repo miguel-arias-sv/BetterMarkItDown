@@ -27,7 +27,7 @@ from rich.table import Table
 from rich.text import Text
 
 from . import ocr
-from .config import Options, get_api_key, key_choice, redact, resolve_endpoint
+from .config import Options, get_api_key, key_choice, pace, redact, resolve_endpoint
 from .core import Meter, convert, list_models
 from .providers import Provider, known_price, model_note
 
@@ -172,7 +172,9 @@ def run_wizard() -> int:
         from .local import ollama
         model = ollama.with_context(model)     # the default context is too small for a page
 
-    workers = IntPrompt.ask("[bold cyan]Parallel pages[/]", default=1 if provider.local else 3)
+    key_name, key_tier = key_choice(provider.id)
+    workers, rpm = pace(provider.local, key_tier)
+    workers = IntPrompt.ask("[bold cyan]Parallel pages[/]", default=workers)
     dpi = IntPrompt.ask("[bold cyan]Render DPI[/] [dim](300 for small or ornate type)[/]",
                         default=200)
 
@@ -184,8 +186,8 @@ def run_wizard() -> int:
 
     opts = Options(pdf=pdf, output=output, work_dir=work_dir, pages=pages, model=model,
                    dpi=dpi, workers=workers, api_key=api_key, no_vision=no_vision,
-                   key_name=key_choice(provider.id)[0], key_tier=key_choice(provider.id)[1],
-                   provider=provider.id, base_url=base_url, rpm=0 if provider.local else 60,
+                   key_name=key_name, key_tier=key_tier,
+                   provider=provider.id, base_url=base_url, rpm=rpm,
                    save_images=False, ocr_fallback=ocr.available())
 
     if not opts.ocr_fallback:

@@ -32,6 +32,7 @@ from .config import (
     get_api_key,
     get_model,
     key_choice,
+    pace,
     redact,
     resolve_endpoint,
 )
@@ -642,9 +643,9 @@ def main(argv: list[str] | None = None) -> int:
         from .local import ollama
         model = ollama.with_context(model)
 
-    # A local server reads one page at a time, and has no rate limit to respect.
-    workers = args.workers or (1 if provider.local else 3)
-    rpm = args.rpm if args.rpm is not None else (0 if provider.local else 60)
+    workers, rpm = pace(provider.local, key_tier)
+    workers = args.workers or workers
+    rpm = args.rpm if args.rpm is not None else rpm
 
     opts = Options(
         pdf=pdf,
@@ -788,7 +789,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Work dir -> {opts.resolved_work_dir()}  (delete it to force a full re-run)")
 
     if result.stopped_reason == "budget":
-        print(f"\n!! Stopped early: spending cap of {Meter.usd(opts.budget_usd)} reached.")
+        print(f"\n!! Stopped early: spending cap of {Meter.usd(opts.budget_usd)} reached"
+              + (", counted at list price, as it is on a key marked free." if key_tier == "free"
+                 else "."))
         return 2
     if result.stopped_reason == "DailyQuotaExceeded":
         print("\n!! Stopped early: this key hit its per-day quota for this model.")

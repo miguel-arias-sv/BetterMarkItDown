@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import signal
 import threading
 from types import SimpleNamespace
 
@@ -169,7 +168,7 @@ def test_running_out_during_a_page_stops_the_run_and_ends_the_model(mac, change)
             setattr(mac, key, value)
         wait_for(stopped)
     assert watch.tripped
-    assert mac.log[:3] == ["stop", ("kill", 4321, signal.SIGKILL), "unload"]
+    assert mac.log[:3] == ["stop", ("kill", 4321, guard.KILL), "unload"]
 
 
 def make_options(tmp_path, monkeypatch, **extra) -> Options:
@@ -202,7 +201,7 @@ def test_a_conversion_stops_mid_page_and_keeps_the_pages_it_finished(mac, tmp_pa
     assert result.stopped_reason == "memory"
     assert result.pages_converted == 1
     assert (tmp_path / "work" / "pages" / "0001.md").read_text("utf-8").strip() == "first page"
-    assert ("kill", 4321, signal.SIGKILL) in mac.log
+    assert ("kill", 4321, guard.KILL) in mac.log
 
 
 def test_a_conversion_is_refused_before_any_page_when_memory_is_short(

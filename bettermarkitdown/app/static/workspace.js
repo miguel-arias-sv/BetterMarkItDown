@@ -258,7 +258,10 @@ function describeEstimate(est, engine, textOnly) {
     return est.seconds ? `${n}: roughly ${duration(est.seconds)} on this computer, from its speed test. Free.`
       : `${n}. Free; the time left shows once the first page is done.`;
   }
-  if (engine.key_tier === "free") return `${n}: free, on your key ${engine.key_name}, within its daily limits.`;
+  if (engine.key_tier === "free") {
+    return `${n}: free, on your key ${engine.key_name}, within its daily limits. ` +
+      (est.seconds ? `Roughly ${duration(est.seconds)}: a key marked free goes slowly, to stay under its limits.` : "");
+  }
   if (est.cost !== null) return `${n}: about ${money(est.cost)} at ${engine.model}'s list price. Rough: pages full of detail cost more.`;
   return `${n}. There is no price list for ${engine.model} here: check ${engine.name}'s billing page.`;
 }
@@ -290,7 +293,7 @@ function lastRunSummary(d) {
   if (r.stopped === "stopped") {
     out.push(h("p", { class: "warn", text: `Stopped on ${r.when}, with ${r.converted} of ${plural(r.selected, unit)} done. Convert again to continue where it stopped.` }));
   } else if (r.stopped === "budget") {
-    out.push(h("p", { class: "warn", text: `Stopped at your spending cap, with ${r.converted} of ${plural(r.selected, unit)} done. Convert again to continue.` }));
+    out.push(h("p", { class: "warn", text: `Stopped at your spending cap${r.key_tier === "free" ? ", counted at list price as it is on a key marked free" : ""}, with ${r.converted} of ${plural(r.selected, unit)} done. Convert again to continue.` }));
   } else if (r.stopped === "memory") {
     out.push(h("p", { class: "warn", text: `Stopped to keep this Mac usable: it was running out of memory, with ${r.converted} of ${plural(r.selected, unit)} done. Close other apps and convert again to continue, or choose an online provider in Settings.` }));
   } else if (r.stopped === "DailyQuotaExceeded") {
@@ -436,6 +439,18 @@ screens.doc = async (id, page) => {
 // The review on its own screen: links and history from before it moved beside the file.
 screens.review = (id, page) => screens.doc(id, page);
 
+// The key in use, beside Convert: the same choice as in Settings, so the estimate, the run
+// and the review all follow it until the person changes it. Nothing here runs by itself.
+function keyPicker(engine, onchosen) {
+  const p = provider(engine.provider);
+  if (!p || fromEnvironment(p) || p.keys.length < 2) return null;
+  const words = { free: "free key", paid: "paid key", "": "tier not set" };
+  const select = h("select", { id: "run-key", onchange: () => onchosen(select) },
+    p.keys.some((k) => k.active) ? null : h("option", { value: "", selected: true, disabled: true }, "Choose a key"),
+    p.keys.map((k) => h("option", { value: k.name, selected: k.active }, `${k.name} (${words[k.tier]})`)));
+  return h("div", { class: "key-choice" }, h("label", { for: "run-key", text: "Key" }), select);
+}
+
 function convertForm(d, engine, data, running, heading = true) {
   const nodes = heading ? [h("h2", { text: d.output_ready ? "Convert more" : "Convert" })] : [];
   if (running) {
@@ -510,14 +525,40 @@ function convertForm(d, engine, data, running, heading = true) {
       h("p", { class: "explain", text: "Turns the file into a PDF first, with Microsoft Office or LibreOffice, and reads it page by page. Tables come out flatter." }));
   }
 
+  // A key marked free is only the person's word, so the cap still counts at list price.
+  const capNote = () => (engine.key_tier === "free"
+    ? `On a key marked free this counts at list price, in case ${engine.name} bills the key after all. The run stops cleanly; pages done so far are kept.`
+    : "The run stops cleanly once it has spent this much; pages done so far are kept.");
+  const capLine = h("p", { class: "explain", text: capNote() });
   let budget = null;
   if (engine.ready && !engine.local) {
     budget = h("input", { type: "text", id: "budget", inputmode: "decimal", placeholder: "no cap", autocomplete: "off" });
     nodes.push(h("label", { for: "budget", text: "Spending cap, in US dollars (optional)" }), budget,
-      h("p", { class: "explain", text: "The run stops cleanly once it has spent this much; pages done so far are kept." }));
+      capLine);
   }
 
   const status = h("p", { role: "status" });
+  const keyNote = () => (engine.key_note ? `${engine.key_note[0].toUpperCase()}${engine.key_note.slice(1)}.` : "");
+  const keyLine = h("p", { class: "explain", text: keyNote() });
+  const chooseKey = async (select) => {
+    const before = engine.key_name;
+    go.disabled = true;
+    status.textContent = "";
+    try {
+      await api("/api/key/use", { provider: engine.provider, name: select.value });
+      const fresh = await api(`/api/doc?id=${encodeURIComponent(d.id)}`);
+      await refresh();
+      if (!engine.ready || !fresh.engine.ready) { replace("doc", d.id); return; }   // the form changes shape
+      Object.assign(engine, fresh.engine);
+      keyLine.textContent = keyNote();
+      capLine.textContent = capNote();
+    } catch (err) {
+      select.value = before;
+      status.className = "error";
+      status.textContent = err.message;
+    }
+    update();
+  };
   const start = async (extra) => {
     go.disabled = true;
     trial.disabled = true;
@@ -542,7 +583,8 @@ function convertForm(d, engine, data, running, heading = true) {
   const go = h("button", { type: "button", class: "primary", disabled: Boolean(running), onclick: () => start({}) }, goLabel);
   const trial = h("button", { type: "button", hidden: true, disabled: Boolean(running), onclick: () => start({ trial: true }) },
     "Try 3 pages first");
-  nodes.push(estimateLine, status, h("div", { class: "actions" }, go, trial));
+  const picker = keyPicker(engine, chooseKey);
+  nodes.push(estimateLine, picker ? keyLine : null, status, h("div", { class: "actions" }, picker, go, trial));
   update();
   return h("div", {}, ...nodes);
 }
@@ -689,7 +731,7 @@ async function reviewPanel(d, engine, pageArg) {
   again.addEventListener("click", async () => {
     if (dirty()) { setState("Save or undo your changes first.", "error"); return; }
     if (current.edited && !confirm("This page has your edits. Transcribing it again replaces them" +
-        (engine.local ? "" : ", and pays for this page again") + ". Go ahead?")) return;
+        (engine.local || engine.key_tier === "free" ? "" : ", and pays for this page again") + ". Go ahead?")) return;
     again.disabled = true;
     try {
       const job = await api("/api/doc/convert", { id: d.id, pages: String(page), again: current.converted,

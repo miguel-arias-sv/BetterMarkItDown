@@ -12,10 +12,12 @@ from pathlib import Path
 from . import credentials, ocr, settings
 from .config import (
     DEFAULT_MODEL,
+    FREE_RPM,
     Options,
     get_api_key,
     get_model,
     key_choice,
+    pace,
     resolve_endpoint,
 )
 from .providers import Provider, known_price
@@ -95,12 +97,13 @@ def engine(fix: str = "") -> dict:
         problem = f"No {provider.name} model is chosen yet."
     if problem and fix and not choosing:
         problem += " " + fix
+    seconds = settings.load().speed.get(model) if provider.local else None
     return {"ready": not problem, "problem": problem, "provider": provider.id,
             "name": provider.name, "model": model, "local": provider.local,
             "key_name": key_name, "key_tier": key_tier,
             "key_note": credentials.switch_note(key_tier) if key_name else "",
             "per_call": price_per_request(model, provider.local or key_tier == "free"),
-            "seconds_per_call": settings.load().speed.get(model) if provider.local else None}
+            "seconds_per_call": 60 / FREE_RPM if key_tier == "free" else seconds}
 
 
 @dataclass
@@ -142,12 +145,13 @@ def options(p: Plan, *, source: Path, output: Path, work_dir: Path | None = None
             raise RuntimeError("Ollama did not start. Open it from the Start menu, then try "
                                "again.")
         name = ollama.with_context(p.model)
+    workers, rpm = pace(p.provider.local, p.key_tier)
     return Options(pdf=source, output=output, work_dir=work_dir, pages=pages, title=title,
                    model=name or DEFAULT_MODEL, api_key=p.key, key_name=p.key_name,
                    key_tier=p.key_tier, base_url=p.base_url,
                    provider=p.provider.id,
-                   workers=1 if p.provider.local else 3, rpm=0 if p.provider.local else 60,
-                   budget_usd=budget_usd, estimate=trial, no_vision=p.text_only,
+                   workers=workers, rpm=rpm, budget_usd=budget_usd, estimate=trial,
+                   no_vision=p.text_only,
                    min_chars=EVERY_PAGE if whole_pages and not p.text_only
                    else Options.min_chars,
                    ocr_fallback=ocr.available(), fresh=again, ask_again=again)
