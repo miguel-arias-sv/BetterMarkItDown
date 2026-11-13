@@ -295,7 +295,7 @@ function lastRunSummary(d) {
   } else if (r.stopped === "budget") {
     out.push(h("p", { class: "warn", text: `Stopped at your spending cap${r.key_tier === "free" ? ", counted at list price as it is on a key marked free" : ""}, with ${r.converted} of ${plural(r.selected, unit)} done. Convert again to continue.` }));
   } else if (r.stopped === "memory") {
-    out.push(h("p", { class: "warn", text: `Stopped to keep this Mac usable: it was running out of memory, with ${r.converted} of ${plural(r.selected, unit)} done. Close other apps and convert again to continue, or choose an online provider in Settings.` }));
+    out.push(h("p", { class: "warn", text: `Stopped to keep this computer usable: it was running out of memory, with ${r.converted} of ${plural(r.selected, unit)} done. Close other apps and convert again to continue, or choose an online provider in Settings.` }));
   } else if (r.stopped === "DailyQuotaExceeded") {
     out.push(h("p", { class: "warn", text: `Stopped: this key reached its daily limit for this model, with ${r.converted} of ${plural(r.selected, unit)} done. Try again tomorrow, or choose another model in Settings.` }));
     out.push(...otherKeys(d, r));

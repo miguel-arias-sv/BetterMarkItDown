@@ -574,8 +574,8 @@ def assemble_output(output: Path, pages_dir: Path, *, title: str, source_name: s
 
 
 def local_limits(opts: Options, abort: threading.Event):
-    """A context for the part of a run that uses a local model, which on a small Mac
-    keeps it within the computer's memory; see local/guard.py."""
+    """A context for the part of a run that uses a local model, which on a computer with
+    little memory keeps it within what is free; see local/guard.py."""
     if opts.provider != "ollama" or opts.no_vision:
         return nullcontext()
     from .local import guard

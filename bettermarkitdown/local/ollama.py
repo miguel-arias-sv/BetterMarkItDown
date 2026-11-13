@@ -26,16 +26,16 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..system import macos
+from .. import system
 
 DOWNLOAD_URL = "https://ollama.com/download"
 WINGET_ID = "Ollama.Ollama"
 # Image (~2k) + prompt (~0.6k) + a dense page (~4k), with room for the larger
 # retry. Each extra 1k tokens costs roughly 100-150 MB of memory on these models.
 LOCAL_CONTEXT = 12288
-# On a small Mac: the same page and first attempt, without the room for the larger retry,
-# so a very dense page may be flagged as cut short. Saves roughly 0.4-0.6 GB.
-SMALL_MAC_CONTEXT = 8192
+# On a computer with little memory: the same page and first attempt, without the room for
+# the larger retry, so a very dense page may be flagged as cut short. Saves roughly 0.4-0.6 GB.
+SMALL_CONTEXT = 8192
 PREFIX = "bmid-"
 
 
@@ -203,7 +203,7 @@ def local_name(tag: str) -> str:
 
 
 def context_size() -> int:
-    return SMALL_MAC_CONTEXT if macos.small_unified() else LOCAL_CONTEXT
+    return SMALL_CONTEXT if system.small_memory() and not system.card_gb() else LOCAL_CONTEXT
 
 
 def context_of(name: str) -> int | None:

@@ -19,6 +19,21 @@ def _meminfo() -> dict[str, int]:
     return values
 
 
+def ram_gb() -> float:
+    return round(_meminfo().get("MemTotal", 0) / GB, 1)
+
+
+def available_gb() -> float | None:
+    """Memory usable right now without swapping, or None if unreadable. MemAvailable is
+    the kernel's own estimate: it counts the cache it can drop."""
+    available = _meminfo().get("MemAvailable")
+    return None if available is None else round(available / GB, 1)
+
+
+def pressure_critical() -> bool:
+    return False              # no such signal here: the free memory is what is watched
+
+
 def _cpu_name() -> str:
     try:
         for line in Path("/proc/cpuinfo").read_text().splitlines():
@@ -44,7 +59,7 @@ def _amd_gpus() -> list[GPU]:
 
 def fill(profile: SystemProfile) -> None:
     memory = _meminfo()
-    profile.ram_gb = round(memory.get("MemTotal", 0) / GB, 1)
+    profile.ram_gb = ram_gb()
     profile.ram_available_gb = round(memory.get("MemAvailable", 0) / GB, 1)
     profile.cpu = _cpu_name()
     profile.gpus = merge_nvidia(_amd_gpus(), nvidia_gpus())

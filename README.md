@@ -610,12 +610,18 @@ at and its limits, so you choose. What we measured on a Core Ultra 7 laptop (pro
 Local models can leave a diagram out altogether, so check every figure, or use an online
 provider for figure-heavy documents.
 
-**On a Mac with less than 16 GB** a local model shares memory with macOS and every open
-app, so the tool contains it. It uses a smaller context, and it will not load a model that
-is too big for the Mac or when too little memory is free right now. If memory runs out during
-a run, it stops, keeps the finished pages and closes the model. The model leaves memory
-as soon as the run ends. A page dense enough to need the larger retry may be flagged as cut
-short. Other computers are unaffected.
+**On a computer with less than 16 GB** (Windows, Linux or an Apple Silicon Mac) a local
+model shares memory with the system and every open app, so the tool contains it. It uses a
+smaller context, and it will not load a model that is too big for the computer or when too
+little memory is free right now. If memory runs out during a run, it stops, keeps the
+finished pages and closes the model. The model leaves memory as soon as the run ends. A page
+dense enough to need the larger retry may be flagged as cut short. A model that fits on a
+graphics card with its own memory is not limited, and neither is a computer with 16 GB or
+more, or an Intel Mac.
+
+These limits have **not yet been tried with a real model running**. On Linux, if Ollama runs
+as a system service, the tool may not be allowed to end the model itself: it then asks Ollama
+to unload it, which can wait for the current page to finish.
 
 **Set it up in one command.** [Ollama](https://ollama.com) runs the model; the tool installs
 it for you (Windows, through winget) and asks before installing or downloading anything:

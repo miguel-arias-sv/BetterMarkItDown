@@ -85,29 +85,39 @@ def test_the_default_context_is_replaced_by_a_copy_with_room_for_a_page(server):
     assert not any(path == "/api/create" for _, path, _ in server.calls)
 
 
-def test_a_small_mac_gets_a_smaller_context(server, monkeypatch):
-    monkeypatch.setattr(ollama.macos, "small_unified", lambda: True)
+def small_computer(monkeypatch, card_gb=0.0):
+    monkeypatch.setattr(ollama.system, "small_memory", lambda: True)
+    monkeypatch.setattr(ollama.system, "card_gb", lambda: card_gb)
+
+
+def test_a_small_computer_gets_a_smaller_context(server, monkeypatch):
+    small_computer(monkeypatch)
     server.models = ["qwen3-vl:2b-instruct"]
     ollama.with_context("qwen3-vl:2b-instruct")
-    assert server.contexts == {"bmid-qwen3-vl-2b-instruct": ollama.SMALL_MAC_CONTEXT}
+    assert server.contexts == {"bmid-qwen3-vl-2b-instruct": ollama.SMALL_CONTEXT}
+
+
+def test_a_graphics_card_keeps_the_full_context_on_a_small_computer(monkeypatch):
+    small_computer(monkeypatch, card_gb=4.0)
+    assert ollama.context_size() == ollama.LOCAL_CONTEXT
 
 
 def test_a_copy_made_with_another_context_is_remade(server, monkeypatch):
-    monkeypatch.setattr(ollama.macos, "small_unified", lambda: True)
+    small_computer(monkeypatch)
     server.models = ["qwen3-vl:2b-instruct", "bmid-qwen3-vl-2b-instruct:latest"]
     server.contexts = {"bmid-qwen3-vl-2b-instruct": ollama.LOCAL_CONTEXT}
     assert ollama.with_context("qwen3-vl:2b-instruct") == "bmid-qwen3-vl-2b-instruct"
-    assert server.contexts["bmid-qwen3-vl-2b-instruct"] == ollama.SMALL_MAC_CONTEXT
+    assert server.contexts["bmid-qwen3-vl-2b-instruct"] == ollama.SMALL_CONTEXT
     assert [body["from"] for _, path, body in server.calls if path == "/api/create"] == [
         "qwen3-vl:2b-instruct"]
 
 
 def test_a_copy_named_directly_is_resized_too(server, monkeypatch):
-    monkeypatch.setattr(ollama.macos, "small_unified", lambda: True)
+    small_computer(monkeypatch)
     server.models = ["bmid-qwen3-vl-2b-instruct:latest"]
     server.contexts = {"bmid-qwen3-vl-2b-instruct": ollama.LOCAL_CONTEXT}
     assert ollama.with_context("bmid-qwen3-vl-2b-instruct") == "bmid-qwen3-vl-2b-instruct"
-    assert server.contexts["bmid-qwen3-vl-2b-instruct"] == ollama.SMALL_MAC_CONTEXT
+    assert server.contexts["bmid-qwen3-vl-2b-instruct"] == ollama.SMALL_CONTEXT
 
 
 def test_unload_only_asks_for_a_model_that_is_loaded(server):

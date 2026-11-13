@@ -18,10 +18,12 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 GB = 1024 ** 3
+SMALL_RAM_GB = 16         # under this, a local model competes with the system for memory
 
 # PCI vendor ids, as DXGI and Linux report them.
 VENDORS = {0x10DE: "NVIDIA", 0x1002: "AMD", 0x8086: "Intel", 0x5143: "Qualcomm",
@@ -71,6 +73,35 @@ class SystemProfile:
         data = dict(data)
         data["gpus"] = [GPU(**g) for g in data.get("gpus", [])]
         return cls(**data)
+
+
+def memory_source():
+    """The module that reads this system's memory: ram_gb(), available_gb(),
+    pressure_critical(). Imported here because each only loads on its own system."""
+    if sys.platform == "win32":
+        from . import windows as source
+    elif sys.platform == "darwin":
+        from . import macos as source
+    else:
+        from . import linux as source
+    return source
+
+
+def small_memory() -> bool:
+    """Too little memory to run a local model unwatched. Unreadable counts as small on
+    Windows and Linux: a wrong "yes" here can freeze the computer. Intel Macs are not
+    covered: macos.small_unified() is about the memory Apple Silicon shares."""
+    if sys.platform == "darwin":
+        from . import macos
+        return macos.small_unified()
+    return memory_source().ram_gb() < SMALL_RAM_GB
+
+
+def card_gb() -> float:
+    """Memory on the best graphics card with its own, or 0: a model there leaves main
+    memory alone."""
+    gpu = detect().best_gpu()
+    return gpu.dedicated_gb if gpu else 0.0
 
 
 def models_dir() -> Path:
@@ -155,5 +186,5 @@ def detect() -> SystemProfile:
     return profile
 
 
-__all__ = ["GB", "GPU", "SystemProfile", "VENDORS", "detect", "is_integrated", "models_dir",
-           "parse_nvidia_smi"]
+__all__ = ["GB", "GPU", "SMALL_RAM_GB", "SystemProfile", "VENDORS", "card_gb", "detect",
+           "is_integrated", "memory_source", "models_dir", "parse_nvidia_smi", "small_memory"]
