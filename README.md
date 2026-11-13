@@ -596,16 +596,27 @@ bettermarkitdown system          # memory, graphics, disk, and a suggested model
 bettermarkitdown system --json   # the same, for scripts
 ```
 
-It suggests the largest Qwen3-VL size that runs well on the machine: 2B on 8 GB, 4B on
-16 GB, 8B on 32 GB or with a graphics card of 8 GB or more, or on a Mac with 16 GB. An 8 GB
-Mac gets 2B: 4B froze an 8 GB M1 until it was forced off. It warns
-when pages would be read by the processor alone, and lists every size with what it is good
-at and its limits, so you choose. What we measured on a Core Ultra 7 laptop (processor only):
+It suggests the largest model that runs well on the machine: GLM-OCR on 8 GB, Qwen3-VL 4B
+on 16 GB, Qwen3-VL 8B on 32 GB or with a graphics card of 8 GB or more, or on a Mac with
+16 GB. An 8 GB Mac gets GLM-OCR: Qwen3-VL 4B froze an 8 GB M1 until it was forced off. It
+warns when pages would be read by the processor alone, and lists every model with what it
+is good at and its limits, so you choose. What we measured on a Core Ultra 7 laptop
+(processor only, 32 GB):
 
 | | Per page | Text, tables, formulas | Textbook chart | Slide with two hand-drawn graphs |
 |---|---|---|---|---|
+| GLM-OCR | ~80-115 s | close to the page in English and Spanish; one formula wrong and two lines left out in eleven pages | skipped: it only reads | not tried |
 | Qwen3-VL 4B | ~90 s | correct | one line | skipped |
 | Qwen3-VL 8B | ~130-190 s | correct | nearly as good as Gemini | skipped |
+
+**GLM-OCR only reads.** It is a small model made for one job: the text, tables and
+formulas of a page. It does not describe charts or pictures, and it writes no headings or
+page numbers. The tool does not send it pictures, keeps each one as an image, and marks in
+the Markdown where something was left undescribed. In our test it used about 3 GB of
+memory. It has not been run on a computer with 8 GB yet, so treat that suggestion as
+untested. It took the place of Qwen3-VL 2B, which on the same pages repeated itself until
+its limit, filled a blank table with rows that were not there, and made up a page number.
+Qwen3-VL 2B still works if you name it: `--model qwen3-vl:2b-instruct`.
 
 Local models can leave a diagram out altogether, so check every figure, or use an online
 provider for figure-heavy documents.
@@ -634,7 +645,7 @@ Or step by step:
 
 ```bash
 bettermarkitdown local install      # Ollama itself
-bettermarkitdown local pull 4b      # 2b, 4b, 8b, or any Ollama tag; shows the size first
+bettermarkitdown local pull 4b      # glm, 4b, 8b, or any Ollama tag; shows the size first
 bettermarkitdown local test 4b      # seconds per page on this computer, and a plain verdict
 bettermarkitdown local status       # what is installed and running
 python -m bettermarkitdown book.pdf --provider ollama --model qwen3-vl:4b-instruct

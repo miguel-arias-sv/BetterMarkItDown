@@ -16,7 +16,7 @@ from bettermarkitdown.config import Options
 from bettermarkitdown.local import guard, ollama
 from bettermarkitdown.system import linux, macos
 
-TWO_B, FOUR_B = "bmid-qwen3-vl-2b-instruct", "bmid-qwen3-vl-4b-instruct"
+BASIC, FOUR_B = "bmid-glm-ocr-q8_0", "bmid-qwen3-vl-4b-instruct"
 VM_STAT = """Mach Virtual Memory Statistics: (page size of 16384 bytes)
 Pages free:                                     4273.
 Pages active:                                 105928.
@@ -128,8 +128,8 @@ def test_no_server_or_no_model_means_nothing_to_end(monkeypatch):
     assert guard.model_processes() == []
 
 
-def test_a_mac_with_room_loads_2b(mac):
-    guard.check(TWO_B)
+def test_a_mac_with_room_loads_the_basic_model(mac):
+    guard.check(BASIC)
 
 
 @pytest.mark.parametrize("name", [FOUR_B, "qwen3-vl:4b-instruct", "mistral:latest"])
@@ -142,24 +142,24 @@ def test_a_model_too_big_for_the_mac_is_refused_however_much_is_free(mac, name):
 def test_too_little_free_right_now_is_refused_with_what_to_do(mac):
     mac.free = 1.8                       # what this Mac had free with no model at all
     with pytest.raises(guard.NotEnoughMemory, match="1.8 GB right now.*Close other apps.*Gemini"):
-        guard.check(TWO_B)
+        guard.check(BASIC)
 
 
 def test_critical_pressure_is_refused_even_with_memory_free(mac):
     mac.critical = True
     with pytest.raises(guard.NotEnoughMemory):
-        guard.check(TWO_B)
+        guard.check(BASIC)
 
 
 def test_unreadable_memory_is_refused(mac):
     mac.free = None
     with pytest.raises(guard.NotEnoughMemory, match="Could not read"):
-        guard.check(TWO_B)
+        guard.check(BASIC)
 
 
 def test_a_refused_model_is_never_watched_or_unloaded(mac):
     mac.free = 1.0
-    with pytest.raises(guard.NotEnoughMemory), guard.contained(TWO_B):
+    with pytest.raises(guard.NotEnoughMemory), guard.contained(BASIC):
         pytest.fail("the model must not run")
     assert mac.log == []
 
@@ -170,19 +170,19 @@ def test_other_computers_get_no_limits(monkeypatch):
 
     monkeypatch.setattr(guard, "check", forbidden)
     monkeypatch.setattr(ollama, "unload", forbidden)
-    with guard.contained(TWO_B) as watch:
+    with guard.contained(BASIC) as watch:
         assert watch is None
 
 
 def test_the_model_leaves_memory_after_a_run(mac):
-    with guard.contained(TWO_B) as watch:
+    with guard.contained(BASIC) as watch:
         pass
     assert not watch.tripped
     assert mac.log == ["unload"]
 
 
 def test_the_model_leaves_memory_after_a_failed_run(mac):
-    with pytest.raises(ValueError), guard.contained(TWO_B):
+    with pytest.raises(ValueError), guard.contained(BASIC):
         raise ValueError
     assert mac.log == ["unload"]
 
@@ -195,7 +195,7 @@ def test_running_out_during_a_page_stops_the_run_and_ends_the_model(mac, change)
         mac.log.append("stop")           # before the kill: nothing may reload the model
         stopped.set()
 
-    with guard.contained(TWO_B, on_stop=on_stop) as watch:
+    with guard.contained(BASIC, on_stop=on_stop) as watch:
         for key, value in change.items():
             setattr(mac, key, value)
         wait_for(stopped)
@@ -204,7 +204,7 @@ def test_running_out_during_a_page_stops_the_run_and_ends_the_model(mac, change)
 
 
 def test_a_pc_with_room_loads_2b_inside_a_watch(pc):
-    with guard.contained(TWO_B) as watch:
+    with guard.contained(BASIC) as watch:
         assert not watch.tripped
     assert pc.log == ["unload"]
 
@@ -218,7 +218,7 @@ def test_a_model_too_big_for_the_pc_is_refused_however_much_is_free(pc):
 def test_a_pc_short_of_free_memory_is_refused_with_what_to_do(pc):
     pc.free = 2.0
     with pytest.raises(guard.NotEnoughMemory, match="2.0 GB right now.*Close other apps.*Gemini"):
-        guard.check(TWO_B)
+        guard.check(BASIC)
 
 
 @pytest.mark.parametrize(("ram", "free", "message"), [
@@ -227,14 +227,14 @@ def test_a_pc_short_of_free_memory_is_refused_with_what_to_do(pc):
 ])
 def test_a_pc_whose_memory_cannot_be_read_is_refused(pc, ram, free, message):
     pc.ram, pc.free = ram, free
-    with pytest.raises(guard.NotEnoughMemory, match=message), guard.contained(TWO_B):
+    with pytest.raises(guard.NotEnoughMemory, match=message), guard.contained(BASIC):
         pytest.fail("the model must not run")
 
 
 def test_a_4_gb_laptop_is_refused_even_with_the_smallest_model(pc):
     pc.ram, pc.free = 4.0, 3.9
     with pytest.raises(guard.NotEnoughMemory, match="more than this computer can spare"):
-        guard.check(TWO_B)
+        guard.check(BASIC)
 
 
 @pytest.mark.parametrize("free", [0.3, None])
@@ -245,7 +245,7 @@ def test_a_pc_running_out_during_a_page_stops_and_ends_the_model(pc, free):
         pc.log.append("stop")
         stopped.set()
 
-    with guard.contained(TWO_B, on_stop=on_stop) as watch:
+    with guard.contained(BASIC, on_stop=on_stop) as watch:
         pc.free = free
         wait_for(stopped)
     assert watch.tripped
@@ -254,20 +254,20 @@ def test_a_pc_running_out_during_a_page_stops_and_ends_the_model(pc, free):
 
 def test_a_pc_with_16_gb_needs_no_limits(pc):
     pc.ram, pc.free = 16.0, 0.1
-    with guard.contained(TWO_B) as watch:
+    with guard.contained(BASIC) as watch:
         assert watch is None
     assert pc.log == []
 
 
 def test_a_model_that_fits_on_the_graphics_card_needs_no_limits(pc):
     pc.card, pc.free = 4.0, 0.1
-    with guard.contained(TWO_B) as watch:
+    with guard.contained(BASIC) as watch:
         assert watch is None
 
 
 def test_a_card_too_small_for_the_model_does_not_lift_the_limits(pc):
     pc.card, pc.free = 2.0, 1.0
-    with pytest.raises(guard.NotEnoughMemory), guard.contained(TWO_B):
+    with pytest.raises(guard.NotEnoughMemory), guard.contained(BASIC):
         pytest.fail("the model must not run")
 
 
@@ -348,7 +348,7 @@ def make_options(tmp_path, monkeypatch, **extra) -> Options:
     doc.save(pdf)
     doc.close()
     monkeypatch.setattr(core, "vision_client", lambda opts: object())
-    return Options(pdf=pdf, output=tmp_path / "a.md", work_dir=tmp_path / "work", model=TWO_B,
+    return Options(pdf=pdf, output=tmp_path / "a.md", work_dir=tmp_path / "work", model=BASIC,
                    provider="ollama", base_url="http://127.0.0.1:11434/v1", api_key="", workers=1,
                    **extra)
 

@@ -32,7 +32,7 @@ from pathlib import Path
 from . import core
 from . import notes as study
 from .config import Options, Result
-from .prompts import FIGURE_PROMPT
+from .prompts import FIGURE_PROMPT, describes_figures
 
 NATIVE = {".docx", ".pptx"}
 LEGACY = {".doc", ".ppt"}
@@ -116,6 +116,8 @@ def convert_office(opts: Options, on_event: core.Event | None = None,
         block = f"![{alt or f'Picture {n}'}]({core.md_link(f'{assets.name}/{name}')})"
         if client is None or min(width, height) < MIN_PICTURE_PX:
             return block
+        if not describes_figures(opts.model):
+            return block + "\n\n" + core.FIGURE_SKIPPED.format(model=opts.model)
         with lock:
             described[0] += 1          # counts toward "remaining" if the run stops early
         try:

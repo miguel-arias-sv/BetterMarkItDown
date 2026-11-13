@@ -1,10 +1,17 @@
 """Models that run on this computer, and which one to suggest.
 
-One family (Qwen3-VL) in three sizes, so the output looks the same whatever the
-machine and only speed and accuracy change. The `-instruct` tags are named
-explicitly: a "thinking" variant would spend minutes reasoning before each page.
+Qwen3-VL in two sizes, and GLM-OCR for small computers. The `-instruct` tags are
+named explicitly: a "thinking" variant would spend minutes reasoning before each page.
 Sizes are Ollama's downloads (https://ollama.com/library/qwen3-vl/tags, checked
-2026-10-27).
+2026-10-27; https://ollama.com/library/glm-ocr/tags, checked 2026-11-13).
+
+GLM-OCR took the place of Qwen3-VL 2B on 2026-11-13. On eight textbook pages, four in
+English and four in Spanish, on a Core Ultra 7 155H with no graphics card, both took
+about 80-130 s a page. Qwen3-VL 2B repeated one line until its limit on one page, filled
+a blank table with rows that were not there, and wrote a page number and a picture
+address it had made up. GLM-OCR did none of that and peaked at 3.1 GB of memory, against
+3.8 GB. It only reads: charts and pictures are skipped. It has not been run on a
+computer with 8 GB yet.
 
 Memory rules of thumb: on a graphics card, the model needs its download size plus
 about 1.5-2 GB for the image encoder and the page's context. On the processor it
@@ -19,11 +26,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
+from ..prompts import describes_figures
 from ..system import SystemProfile
 
 # On Apple Silicon the graphics may use roughly two thirds of main memory, but macOS and
 # open apps need their share too. 0.6 keeps Qwen3-VL 4B off 8 GB Macs: on an 8 GB M1 it
-# froze the whole computer until it was forced off (2026-11-06).
+# froze the whole computer until it was forced off (2026-11-06). They are offered GLM-OCR.
 UNIFIED_SHARE = 0.6
 DISK_MARGIN_GB = 2.0
 MIN_NVIDIA_DRIVER = 550        # Ollama's minimum for most NVIDIA cards
@@ -33,6 +41,7 @@ MIN_NVIDIA_DRIVER = 550        # Ollama's minimum for most NVIDIA cards
 class LocalModel:
     tag: str                   # what `ollama pull` takes
     name: str
+    short: str                 # what to type for it: `local pull glm`
     tier: str                  # basic | standard | high
     download_gb: float
     min_vram_gb: float         # to run wholly on a graphics card
@@ -43,19 +52,22 @@ class LocalModel:
 
 CATALOG: tuple[LocalModel, ...] = (       # smallest first
     LocalModel(
-        tag="qwen3-vl:2b-instruct", name="Qwen3-VL 2B", tier="basic",
-        download_gb=1.9, min_vram_gb=3.5, min_ram_gb=8,
-        good_at="Clean printed text and simple layouts, on modest computers.",
-        limits="The least accurate: expect slips in maths, tables and small print, "
-               "so read its output closely."),
+        tag="glm-ocr:q8_0", name="GLM-OCR", short="glm", tier="basic",
+        download_gb=1.8, min_vram_gb=3.5, min_ram_gb=8,
+        good_at="Printed text, tables and formulas, on modest computers: it read English "
+                "and Spanish textbook pages closely in our tests.",
+        limits="It only reads. Charts and pictures are skipped, with just their caption "
+               "kept, and it writes no headings or page numbers. In our tests it got one "
+               "formula wrong and twice left out a line, so check its pages against the "
+               "original. Not yet run on an 8 GB computer."),
     LocalModel(
-        tag="qwen3-vl:4b-instruct", name="Qwen3-VL 4B", tier="standard",
+        tag="qwen3-vl:4b-instruct", name="Qwen3-VL 4B", short="4b", tier="standard",
         download_gb=3.3, min_vram_gb=5.0, min_ram_gb=16,
         good_at="Text, tables and formulas: all read correctly in our tests.",
         limits="Weak on graphs: it gave a textbook chart one line and skipped a slide's "
                "two graphs entirely. Check every figure."),
     LocalModel(
-        tag="qwen3-vl:8b-instruct", name="Qwen3-VL 8B", tier="high",
+        tag="qwen3-vl:8b-instruct", name="Qwen3-VL 8B", short="8b", tier="high",
         download_gb=6.2, min_vram_gb=8.0, min_ram_gb=32,
         good_at="The most accurate local option: described a textbook chart almost as well "
                 "as Gemini, with axes and formulas.",
@@ -127,13 +139,18 @@ def recommend(profile: SystemProfile) -> Recommendation:
     else:
         rec.reasons.append(f"{profile.ram_gb:g} GB of memory is enough for "
                            f"{chosen.model.name}.")
-        lighter = fitting[-2].model.name if len(fitting) > 1 else None
+        lighter = fitting[-2].model if len(fitting) > 1 else None
+        if lighter is None:
+            other = "."
+        elif describes_figures(lighter.tag):
+            other = f"; {lighter.name} is faster, but describes charts and diagrams less well."
+        else:
+            other = (f"; {lighter.name} needs less memory, but only reads text: it skips "
+                     "charts and diagrams.")
         rec.warnings.append(
             "No graphics card with memory of its own, so the processor reads the pages. "
             "Expect it to be slow, a minute or more per page. The speed test after the "
-            "download gives the real figure"
-            + (f"; {lighter} is faster, but describes charts and diagrams less well."
-               if lighter else "."))
+            "download gives the real figure" + other)
         if any(g.integrated and g.vendor in ("Intel", "AMD") for g in profile.gpus):
             rec.warnings.append("The built-in graphics will probably not help: on an Intel Arc "
                                 "laptop Ollama ran entirely on the processor. Its experimental "

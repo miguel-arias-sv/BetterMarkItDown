@@ -322,7 +322,7 @@ def test_money_from_the_text_layer_is_escaped_so_it_never_starts_a_formula(tmp_p
 def test_pages_with_equation_images_are_transcribed_whole(tmp_path: Path, monkeypatch):
     pytest.importorskip("markitdown")
     pytest.importorskip("openai")
-    from bettermarkitdown import core
+    from bettermarkitdown import core, prompts
 
     sent = []
 
@@ -336,13 +336,76 @@ def test_pages_with_equation_images_are_transcribed_whole(tmp_path: Path, monkey
                   base_url="http://localhost:1/v1", save_images=False)
     convert(Options(**common, work_dir=tmp_path / "w1"))
     page = (tmp_path / "w1" / "pages" / "0001.md").read_text(encoding="utf-8")
-    assert sent == [core.PAGE_PROMPT]
+    assert sent == [prompts.PAGE_PROMPT]
     assert "full-page vision transcription" in page
     assert "\\tag" not in page and "\\qquad (1)" in page and "\\qquad (2)" in page
 
     sent.clear()
     convert(Options(**common, work_dir=tmp_path / "w2", ignore_small_images=True))
-    assert core.PAGE_PROMPT not in sent
+    assert prompts.PAGE_PROMPT not in sent
+
+
+def test_a_model_that_only_reads_gets_its_own_prompt_and_the_page_says_so(tmp_path: Path,
+                                                                          monkeypatch):
+    """GLM-OCR does not follow the page prompt and leaves pictures out in silence."""
+    pytest.importorskip("markitdown")
+    pytest.importorskip("openai")
+    from bettermarkitdown import core, prompts
+
+    assert prompts.page_prompt("gemini-3-flash") == prompts.PAGE_PROMPT
+    assert prompts.describes_figures("qwen3-vl:4b-instruct")
+    for name in ("glm-ocr:q8_0", "bmid-glm-ocr-q8_0", "GLM-OCR:latest"):
+        assert prompts.page_prompt(name) == "Text Recognition:"
+        assert not prompts.describes_figures(name)
+
+    sent = []
+
+    def fake_describe(client, model, png, prompt, **kwargs):
+        sent.append(prompt)
+        return "The text of the page."
+
+    monkeypatch.setattr(core, "describe_image", fake_describe)
+    convert(Options(pdf=_equation_image_pdf(tmp_path / "eq.pdf"), output=tmp_path / "out.md",
+                    base_url="http://localhost:1/v1", save_images=False,
+                    model="bmid-glm-ocr-q8_0", work_dir=tmp_path / "w"))
+    page = (tmp_path / "w" / "pages" / "0001.md").read_text(encoding="utf-8")
+    assert sent == ["Text Recognition:"]
+    assert "The text of the page." in page
+    assert "bmid-glm-ocr-q8_0 only reads text" in page and "not described" in page
+
+
+def test_a_model_that_only_reads_is_sent_no_figure_and_its_made_up_links_go(tmp_path: Path,
+                                                                            monkeypatch):
+    pymupdf = pytest.importorskip("pymupdf")
+    pytest.importorskip("markitdown")
+    pytest.importorskip("openai")
+    from bettermarkitdown import core
+
+    assert (core.no_made_up_pictures("Text.\n\n![Figure P.3](image)\n\n![](https://x.test/a.png)")
+            == "Text.\n\n*[picture not described: Figure P.3]*\n\n*[picture not described]*")
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    for i in range(6):
+        page.insert_text((72, 90 + 14 * i), "Wheat yields rose in every region between the two "
+                         "survey years, as the chart shows.", fontsize=11)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 300, 220), False)
+    pix.clear_with(120)
+    page.insert_image(pymupdf.Rect(100, 220, 400, 440), pixmap=pix)
+    doc.save(tmp_path / "chart.pdf")
+    doc.close()
+
+    sent = []
+    monkeypatch.setattr(core, "describe_image",
+                        lambda *a, **k: sent.append(a[3]) or "should not be asked")
+    convert(Options(pdf=tmp_path / "chart.pdf", output=tmp_path / "out.md",
+                    base_url="http://localhost:1/v1", model="glm-ocr:q8_0",
+                    work_dir=tmp_path / "w"))
+    page_md = (tmp_path / "w" / "pages" / "0001.md").read_text(encoding="utf-8")
+    assert sent == [], "the figure was not sent to a model that cannot describe it"
+    assert "Wheat yields rose" in page_md
+    assert "*[not described: glm-ocr:q8_0 only reads text; see the picture]*" in page_md
+    assert (tmp_path / "out_assets" / "page_0001_fig_01.png").is_file()
 
 
 def test_one_tag_per_display_leaves_single_tags_alone():

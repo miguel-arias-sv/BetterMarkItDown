@@ -6,7 +6,8 @@
     local test [MODEL]    time one test page
     local setup           all of the above, choosing at each step
 
-MODEL is a tag (qwen3-vl:4b-instruct) or a size: 2b, 4b, 8b. Default: the suggestion.
+MODEL is a tag (qwen3-vl:4b-instruct) or a short name: glm, 4b, 8b. Default: the
+suggestion.
 Nothing is installed or downloaded without a yes; --yes answers it in advance.
 """
 
@@ -25,7 +26,7 @@ def resolve(choice: str | None, suggested: LocalModel | None) -> LocalModel | st
         return suggested
     wanted = choice.strip().lower()
     for model in CATALOG:
-        if wanted in (model.tag, model.tag.split(":")[1].split("-")[0], model.tier):
+        if wanted in (model.tag, model.short, model.tier):
             return model
     return choice
 
@@ -163,8 +164,8 @@ def cmd_setup(assume_yes: bool) -> int:
     if assume_yes or not sys.stdin.isatty():
         choice = None
     else:
-        sizes = "/".join(m.tag.split(":")[1].split("-")[0] for m in CATALOG)
-        default = rec.model.tag.split(":")[1].split("-")[0]
+        sizes = "/".join(m.short for m in CATALOG)
+        default = rec.model.short
         choice = input(f"Which model? ({sizes}, Enter for {default}) ").strip() or None
     model = resolve(choice, rec.model)
     tag = model.tag if isinstance(model, LocalModel) else model
@@ -178,7 +179,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="bettermarkitdown local",
                                      description="Run models on this computer with Ollama.")
     parser.add_argument("action", choices=["status", "install", "pull", "test", "setup"])
-    parser.add_argument("model", nargs="?", help="2b, 4b, 8b, or an Ollama tag "
+    parser.add_argument("model", nargs="?", help="glm, 4b, 8b, or an Ollama tag "
                                                  "(default: the suggested model)")
     parser.add_argument("--yes", action="store_true",
                         help="answer yes to install and download questions")

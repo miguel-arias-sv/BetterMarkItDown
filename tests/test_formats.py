@@ -86,6 +86,17 @@ def test_word_pictures_are_saved_and_described_where_they_stood(report_docx, tmp
     assert (result.unit, result.pages_converted, result.pages_selected) == ("picture", 1, 1)
 
 
+def test_a_model_that_only_reads_is_sent_no_pictures(report_docx, tmp_path, fake_vision):
+    pytest.importorskip("mammoth")
+    opts = _options(report_docx, tmp_path)
+    opts.model = "glm-ocr:q8_0"
+    formats.convert_office(opts)
+    text = opts.output.read_text(encoding="utf-8")
+    assert fake_vision == [], "no picture went to the model"
+    assert "*[not described: glm-ocr:q8_0 only reads text; see the picture]*" in text
+    assert "](My%20report_assets/My%20report_picture_01.png)" in text      # the picture is kept
+
+
 def test_powerpoint_pictures_are_described_too(deck_pptx, tmp_path, fake_vision):
     pytest.importorskip("pptx")
     opts = _options(deck_pptx, tmp_path)

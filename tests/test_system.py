@@ -28,7 +28,7 @@ def machine(name: str) -> SystemProfile:
 
 @pytest.mark.parametrize(("name", "tag", "runs_on"), [
     ("old_netbook_4gb", None, ""),
-    ("budget_laptop_8gb_uhd", "qwen3-vl:2b-instruct", "processor"),
+    ("budget_laptop_8gb_uhd", "glm-ocr:q8_0", "processor"),
     ("office_desktop_16gb_apu", "qwen3-vl:4b-instruct", "processor"),
     ("laptop_rtx4050_6gb_old_driver_full_disk", "qwen3-vl:4b-instruct", "graphics card"),
     ("gaming_desktop_rtx3060_12gb", "qwen3-vl:8b-instruct", "graphics card"),
@@ -37,7 +37,7 @@ def machine(name: str) -> SystemProfile:
     ("laptop_core_ultra_32gb_arc_igpu", "qwen3-vl:8b-instruct", "processor"),
     ("macbook_air_m3_16gb", "qwen3-vl:8b-instruct", "shared memory"),
     # 4B froze an 8 GB M1 until it was forced off, so it does not fit there.
-    ("macbook_air_m1_8gb", "qwen3-vl:2b-instruct", "shared memory"),
+    ("macbook_air_m1_8gb", "glm-ocr:q8_0", "shared memory"),
 ])
 def test_each_kind_of_machine_gets_a_sensible_model(name, tag, runs_on):
     rec = recommend(machine(name))
@@ -49,7 +49,7 @@ def test_each_kind_of_machine_gets_a_sensible_model(name, tag, runs_on):
 
 def test_an_8_gb_mac_is_not_offered_the_4b_model():
     rec = recommend(machine("macbook_air_m1_8gb"))
-    assert [o.model.tag for o in rec.options if o.fits] == ["qwen3-vl:2b-instruct"]
+    assert [o.model.tag for o in rec.options if o.fits] == ["glm-ocr:q8_0"]
 
 
 def test_too_little_memory_points_to_an_online_provider():
@@ -63,6 +63,13 @@ def test_processor_only_machines_are_warned_about_speed_and_offered_a_lighter_mo
     assert any("slow" in w and "Qwen3-VL 4B is faster" in w and "charts" in w
                for w in rec.warnings)
     assert any("Vulkan" in w for w in rec.warnings)
+
+
+def test_the_lighter_option_is_not_called_a_chart_reader_when_it_only_reads_text():
+    rec = recommend(machine("office_desktop_16gb_apu"))
+    assert rec.model.tag == "qwen3-vl:4b-instruct"
+    assert any("GLM-OCR needs less memory" in w and "skips charts" in w for w in rec.warnings)
+    assert not any("GLM-OCR is faster" in w for w in rec.warnings)
 
 
 def test_a_full_disk_and_an_old_nvidia_driver_are_reported():
@@ -109,7 +116,7 @@ def test_system_command_prints_json(monkeypatch, capsys):
     monkeypatch.setattr(system, "detect", lambda: machine("budget_laptop_8gb_uhd"))
     assert main(["system", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["recommendation"]["model"]["tag"] == "qwen3-vl:2b-instruct"
+    assert data["recommendation"]["model"]["tag"] == "glm-ocr:q8_0"
     assert data["system"]["ram_gb"] == 8.0
 
     assert main(["system"]) == 0

@@ -56,6 +56,28 @@ Rules:
 - Output Markdown only, no preamble, no code fence around the whole answer.
 """
 
+# Models trained only to read a page, with fixed instructions of their own. GLM-OCR
+# (https://huggingface.co/zai-org/GLM-OCR) answers "Text Recognition:" with the page's
+# text, tables and formulas. It does not follow PAGE_PROMPT's rules, and it does not
+# describe pictures: asked to, it would transcribe whatever letters the picture holds.
+READS_ONLY = {"glm-ocr": "Text Recognition:"}
+
+
+def _reads_only(model: str) -> str | None:
+    name = (model or "").lower()
+    return next((prompt for family, prompt in READS_ONLY.items() if family in name), None)
+
+
+def page_prompt(model: str) -> str:
+    """The instruction for a whole page: the model's own if it has one."""
+    return _reads_only(model) or PAGE_PROMPT
+
+
+def describes_figures(model: str) -> bool:
+    """False for a model that only reads text, so no picture is sent to it."""
+    return _reads_only(model) is None
+
+
 # Study notes, for a page the model refused to transcribe (see notes.py). Notes, not a
 # rewrite: the ideas explained afresh, never the page's wording or sentence order.
 NOTES_PROMPT = """This textbook page could not be transcribed. Write study notes on it for a

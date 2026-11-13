@@ -169,7 +169,7 @@ def test_address_honours_ollama_host(monkeypatch):
 
 def test_sizes_and_tiers_pick_catalog_models():
     small, medium, large = CATALOG
-    assert resolve("2b", large) is small
+    assert resolve("glm", large) is small
     assert resolve("standard", large) is medium
     assert resolve("qwen3-vl:8b-instruct", small) is large
     assert resolve(None, medium) is medium

@@ -36,7 +36,7 @@ from urllib.parse import quote
 from . import notes as study
 from . import ocr as local_ocr
 from .config import GEMINI_BASE_URL, Options, Result
-from .prompts import FIGURE_PROMPT, PAGE_PROMPT
+from .prompts import FIGURE_PROMPT, describes_figures, page_prompt
 from .providers import (
     DailyQuotaExceeded,
     as_vision_client,
@@ -183,6 +183,22 @@ def _retry_after(message: str) -> float:
 # ---------------------------------------------------------------------------
 # Vision
 # ---------------------------------------------------------------------------
+# A model that only reads text (prompts.READS_ONLY) leaves pictures out without saying
+# so. The page says it instead, so nobody takes a missing chart for a page without one.
+READS_ONLY_NOTE = ("<!-- {model} only reads text: any chart or picture on this page is "
+                   "not described. Check the page in the PDF. -->")
+FIGURE_SKIPPED = "*[not described: {model} only reads text; see the picture]*"
+
+
+def no_made_up_pictures(body: str) -> str:
+    """A model that only reads has no picture files to point at, so any picture link in
+    its answer is made up: GLM-OCR wrote `![Figure P.3](image)`. Say what is missing."""
+    def named(match: re.Match) -> str:
+        alt = match.group(1).strip()
+        return f"*[picture not described{': ' + alt if alt else ''}]*"
+    return re.sub(r"!\[([^\]]*)\]\([^)]*\)", named, body)
+
+
 def has_content(text: str) -> bool:
     """False for a reply that is blank or only HTML comments.
 
@@ -453,9 +469,9 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                 assets.mkdir(parents=True, exist_ok=True)
                 (assets / f"page_{index + 1:04d}.png").write_bytes(png)
 
-            body = describe_image(client, opts.model, png, PAGE_PROMPT, cache=cache,
-                                  limiter=limiter, meter=meter, reasoning=opts.reasoning,
-                                  use_cache=not opts.ask_again)
+            body = describe_image(client, opts.model, png, page_prompt(opts.model),
+                                  cache=cache, limiter=limiter, meter=meter,
+                                  reasoning=opts.reasoning, use_cache=not opts.ask_again)
 
             if not has_content(body) or body.startswith("*[vision call failed"):
                 if opts.study_notes and study.refused(body):
@@ -483,7 +499,11 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                 raise PageFailed(f"page {index + 1}: {body.strip() or 'empty response'}")
 
             body = one_tag_per_display(body)
+            if not describes_figures(opts.model):
+                body = no_made_up_pictures(body)
             parts.append("<!-- source: full-page vision transcription -->\n\n" + body)
+            if not describes_figures(opts.model):
+                parts.append("\n\n" + READS_ONLY_NOTE.format(model=opts.model))
             if opts.save_images:
                 parts.append(f"\n\n![Page {index + 1} scan]"
                              f"({md_link(f'{assets.name}/page_{index + 1:04d}.png')})")
@@ -502,6 +522,12 @@ def process_page(index: int, *, pdf_path: str, md, client, opts: Options,
                 name = f"page_{index + 1:04d}_fig_{n:02d}.png"
                 assets.mkdir(parents=True, exist_ok=True)
                 (assets / name).write_bytes(png)
+                if not describes_figures(opts.model):
+                    parts.append(
+                        f"\n\n![Page {index + 1}, figure {n}]"
+                        f"({md_link(f'{assets.name}/{name}')})\n\n"
+                        + FIGURE_SKIPPED.format(model=opts.model))
+                    continue
 
                 description = describe_image(client, opts.model, png, FIGURE_PROMPT,
                                              cache=cache, limiter=limiter, meter=meter,

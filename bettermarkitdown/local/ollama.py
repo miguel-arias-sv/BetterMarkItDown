@@ -344,7 +344,7 @@ def test_page_png(dpi: int = 200, max_edge: int = 1568) -> bytes:
 
 def speed_test(name: str) -> SpeedTest:
     """Load `name`, transcribe the test page once, and time both."""
-    from ..prompts import PAGE_PROMPT
+    from ..prompts import page_prompt
     from ..providers import PROVIDERS
     from ..providers.openai_compat import OpenAICompatible
     from . import guard
@@ -360,7 +360,7 @@ def speed_test(name: str) -> SpeedTest:
             client = OpenAICompatible(PROVIDERS["ollama"], base_url=api_url() + "/v1",
                                       timeout=900.0)
             started = time.monotonic()
-            reply = client.describe(png, PAGE_PROMPT, model=name, max_tokens=4096,
+            reply = client.describe(png, page_prompt(name), model=name, max_tokens=4096,
                                     reasoning="default")
             page_seconds = time.monotonic() - started
         except Exception as exc:
